@@ -20,6 +20,11 @@ namespace AssetBankPlugin.Export
                     System.Numerics.Vector3 pos = animation.Frames[frame].Positions[i];
                     anim.AddTranslationKey(animation.PositionChannels[i], animation.Frames[frame].FrameIndex, pos.X, pos.Y, pos.Z);
                 }
+                for (int i = 0; i < animation.Frames[frame].Scales.Count; i++)
+                {
+                    System.Numerics.Vector3 scale = animation.Frames[frame].Scales[i];
+                    anim.AddScaleKey(animation.ScaleChannels[i], animation.Frames[frame].FrameIndex, scale.X, scale.Y, scale.Z);
+                }
                 for (int i = 0; i < animation.Frames[frame].Rotations.Count; i++)
                 {
                     System.Numerics.Quaternion rot = animation.Frames[frame].Rotations[i];

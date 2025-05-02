@@ -31,7 +31,7 @@ namespace AssetBankPlugin.Ant
 
             public int SafeSum(ushort catchAllBitCount) => SafeBitsX(catchAllBitCount) + SafeBitsY(catchAllBitCount) + SafeBitsZ(catchAllBitCount) + SafeBitsW(catchAllBitCount);
         }
-
+  
 
 
         public ushort SubBlockCount { get; set; } = 0;

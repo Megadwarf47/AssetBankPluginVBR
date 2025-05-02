@@ -8,14 +8,14 @@ namespace AssetBankPlugin.Ant
     public partial class DctAnimationAsset : AnimationAsset
     {
         public static float[,] DctCoeffs = new float[8, 8] {
-            { 0.250000f, 0.490393f, 0.461940f, 0.415735f, 0.353553f, 0.277785f, 0.191342f, 0.097545f,  },
-            { 0.250000f, 0.415735f, 0.191342f, -0.097545f, -0.353553f, -0.490393f, -0.461940f, -0.277785f,  },
-            { 0.250000f, 0.277785f, -0.191342f, -0.490393f, -0.353553f, 0.097545f, 0.461940f, 0.415735f,  },
-            { 0.250000f, 0.097545f, -0.461940f, -0.277785f, 0.353553f, 0.415735f, -0.191342f, -0.490393f,  },
-            { 0.250000f, -0.097545f, -0.461940f, 0.277785f, 0.353553f, -0.415735f, -0.191342f, 0.490393f,  },
-            { 0.250000f, -0.277785f, -0.191342f, 0.490393f, -0.353553f, -0.097545f, 0.461940f, -0.415735f,  },
-            { 0.250000f, -0.415735f, 0.191342f, 0.097545f, -0.353553f, 0.490393f, -0.461940f, 0.277785f,  },
-            { 0.250000f, -0.490393f, 0.461940f, -0.415735f, 0.353554f, -0.277785f, 0.191342f, -0.097545f,  },
+            { 0.250000f, 0.24519631f, 0.23096988f, 0.20786740f, 0.17677669f, 0.13889255f, 0.09567086f,  0.04877256f,  },
+            { 0.250000f, 0.20786740f, 0.09567086f, -0.04877258f, -0.17677669f, -0.24519633f, -0.23096988f, -0.13889250f,  },
+            { 0.250000f, 0.13889255f, -0.09567088f, -0.24519633f, -0.17677666f, 0.04877260f, 0.23096989f, 0.20786734f,  },
+            { 0.250000f, 0.04877256f, -0.23096991f, -0.13889250f, 0.17677675f, 0.20786734f, -0.09567098f, -0.24519630f,  },
+            { 0.250000f, -0.04877258f, -0.23096988f, 0.13889261f, 0.17677669f, -0.20786744f, -0.09567074f, 0.24519636f,  },
+            { 0.250000f, -0.13889259f, -0.09567078f, 0.24519631f, -0.17677681f, -0.04877255f, 0.23096983f, -0.20786740f,  },
+            { 0.250000f, -0.20786741f, 0.09567090f, 0.04877252f, -0.17677663f, 0.24519633f, -0.23096994f, 0.13889278f,  },
+            { 0.250000f, -0.24519633f, 0.23096989f, -0.20786744f, 0.17677671f, -0.13889271f, 0.09567098f, -0.04877289f,  },
         };
 
         public float[] GenerateCoeffs(ushort frame)
@@ -61,9 +61,11 @@ namespace AssetBankPlugin.Ant
             for (var i = 0; i < s_DofCount; i++)
             {
                 // 4 bits is unused.
+                // tells u how many subblocks this DoF changes in
                 var s_SubBlocksCount = (byte)(DofTableDescBytes[i] >> 4 & 0xF);
 
                 var s_DofData = new DofTable(s_SubBlocksCount);
+                //assigns initial delta values from the array in header
                 s_DofData.DeltaBase = new short[4]
                 {
                 DeltaBaseX[i],
@@ -71,9 +73,10 @@ namespace AssetBankPlugin.Ant
                 DeltaBaseZ[i],
                 DeltaBaseW[i],
                 };
-
+                //creates table to store bit sizes for each 
                 s_DofData.BitsPerSubBlock = new DofTable.BitsPerComponent[s_DofData.SubBlockCount];
                 for (var j = 0; j < s_DofData.SubBlockCount; j++)
+                    // decodes the bits per subblock number into the actual bits for that subblock using a bitmask(each byte in the ushort represent x,y,z or w)
                     s_DofData.BitsPerSubBlock[j] = new DofTable.BitsPerComponent(BitsPerSubblock[s_SubBlockTotal + j]);
 
                 dofTable[i] = s_DofData;

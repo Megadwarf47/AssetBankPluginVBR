@@ -58,11 +58,11 @@ namespace AssetBankPlugin.Ant
             DeltaBaseZ = data["DeltaBaseZ"] as short[];
             DeltaBaseW = data["DeltaBaseW"] as short[];
             BitsPerSubblock = data["BitsPerSubblock"] as ushort[];
-
+            DecompressedData = Decompress();
             base.SetData(data);
 
             // Decompress the animation.
-            DecompressedData = Decompress();
+            
         }
 
         public override InternalAnimation ConvertToInternal()

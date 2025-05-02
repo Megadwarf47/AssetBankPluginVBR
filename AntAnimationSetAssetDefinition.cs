@@ -28,11 +28,14 @@ namespace AssetBankPlugin
 
         public override bool Export(EbxAssetEntry entry, string path, string filterType)
         {
+            var opt = new AnimationOptions();
+                opt.Load();
             // Get the Ebx.
             EbxAsset asset = App.AssetManager.GetEbx(entry);
             dynamic antSetAsset = (dynamic)asset.RootObject;
             // Get the Chunk.
             Stream s;
+            int bundleId = 0;
             if (antSetAsset.AssetBankResource != (ulong)0)
             {
                 ResAssetEntry res = App.AssetManager.GetResEntry(antSetAsset.AssetBankResource);
@@ -43,33 +46,80 @@ namespace AssetBankPlugin
                 App.Logger.Log("Asset does not reference a bank");
                 return false;
             }
+            IEnumerable<BundleEntry> bundles;
+            string cachePath = $"Caches/{ProfilesLibrary.ProfileName}_antstate.cache";
+            string internalCachePath = $"Caches/{ProfilesLibrary.ProfileName}_antref.cache";
+
+            // If we're not using the cache or it doesn't exist yet, then get every bundle.
+            if (opt.UseCache)
+            {
+                if (File.Exists(cachePath) && File.Exists(internalCachePath))
+                {
+                    Cache.ReadState(cachePath);
+                    Cache.ReadMap(internalCachePath);
+                }
+                else
+                {
+                    // First time setup, read all bundles and store them in the antstatecache.
+                    bundles = App.AssetManager.EnumerateBundles();
+                    foreach (var bundle in bundles)
+                    {
+                        LoadAntStateFromBundle(bundle);
+                    }
+                    Cache.WriteState(cachePath);
+                    Cache.WriteMap(internalCachePath);
+                }
+            }
+            else
+            {
+                bundles = App.AssetManager.EnumerateBundles();
+                foreach (var bundle in bundles)
+                {
+                    LoadAntStateFromBundle(bundle);
+                }
+            }
+
 
             using (var r = new NativeReader(s))
             {
                 var bank = new Bank(r, 0);
 
-                var opt = new AnimationOptions();
-                opt.Load();
+                
 
                 EbxAssetEntry skelEntry = App.AssetManager.GetEbxEntry(antSetAsset.SkeletonAsset.External.FileGuid);
                 var skelEbx = App.AssetManager.GetEbx(skelEntry);
                 dynamic skel = (dynamic)skelEbx.RootObject;
 
-                var skeleton = SkeletonAsset.ConvertToInternal(skel);
-                //foreach (var dat in bank)
-                //{
-                //    if (dat.Value is AnimationAsset anim)
-                //    {
-                //        anim.Channels = anim.GetChannels(anim.ChannelToDofAsset);
-                //        var intern = anim.ConvertToInternal();
-                //        new AnimationExporterSEANIM().Export(intern, skeleton, Path.GetDirectoryName(path));
-                //    }
-                //}
+                var skeleton = SkeletonAssetExport.ConvertToInternal(skel);
+                foreach (var dataName in bank.DataNames)
+                {
+                    var dat = AntRefTable.Get(dataName.Value);
+                    if (dat is AnimationAsset anim)
+                    {
+                        anim.Name = dataName.Key;
+                        anim.Channels = anim.GetChannels(anim.ChannelToDofAsset);
+                        var intern = anim.ConvertToInternal();
+                        new AnimationExporterSEANIM().Export(intern, skeleton, Path.GetDirectoryName(path));
+                    }
+                }
             }
 
             MessageBox.Show($"Exported {entry.Name} for {ProfilesLibrary.ProfileName}", "Test");
 
             return true;
+        }
+        public static void LoadAntStateFromBundle(BundleEntry bundle)
+        {
+            var resources = App.AssetManager.EnumerateRes(bundle).Where(x => x.Type == "AssetBank");
+            foreach (var res in resources)
+            {
+                Console.WriteLine(res.DisplayName);
+                var antBank = App.AssetManager.GetRes(res);
+                var antReader = new NativeReader(antBank);
+                _ = new Bank(antReader, App.AssetManager.GetBundleId(bundle));
+                antBank.Dispose();
+                antReader.Dispose();
+            }
         }
     }
 }

@@ -50,6 +50,7 @@ namespace AssetBankPlugin.Ant
 
             switch ((ProfileVersion)ProfilesLibrary.DataVersion)
             {
+                
                 case ProfileVersion.PlantsVsZombiesGardenWarfare2:
                 case ProfileVersion.Battlefield1:
                     {
@@ -58,7 +59,26 @@ namespace AssetBankPlugin.Ant
                         {
                             if (c.Value is ClipControllerAsset cl)
                             {
+
                                 if (cl.Anims.Contains(ID))
+                                {
+                                    FPS = cl.FPS;
+                                    hierarchy = (LayoutHierarchyAsset)AntRefTable.Get(cl.Target);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    break;
+                case ProfileVersion.PlantsVsZombiesGardenWarfare:
+                    {
+                        dof = (ChannelToDofAsset)AntRefTable.Get(channelToDofAsset);
+                        StorageType = dof.StorageType;
+                        foreach (var c in AntRefTable.Refs)
+                        {
+                            if (c.Value is ClipControllerAsset cl)
+                            {
+                                if (cl.Anim == ID)
                                 {
                                     FPS = cl.FPS;
                                     hierarchy = (LayoutHierarchyAsset)AntRefTable.Get(cl.Target);
@@ -104,7 +124,10 @@ namespace AssetBankPlugin.Ant
                 }
                 else if(layoutAsset is DeltaTrajLayoutAsset)
                 {
-
+                    for (int x = 0; x < 8; x++)
+                    {
+                        channelNames.Add(""+x, BoneChannelType.Rotation);
+                    }
                 }
             }
             
@@ -119,12 +142,12 @@ namespace AssetBankPlugin.Ant
                     channels.Add("");
                 }
 
-                for (int i = 0; i < data.Length; i++)
-                {
-                    int channelId = (int)data[i];
-                    channels[i] = channelNames.ElementAt(channelId).Key;
-                }
-            }
+                    for (int i = 0; i < data.Length; i++)
+                    {
+                        int channelId = (int)data[i];
+                            channels[i] = channelNames.ElementAt(channelId).Key;
+                        }
+                    }
             else
             {
                 switch (StorageType)
@@ -140,7 +163,11 @@ namespace AssetBankPlugin.Ant
                             for (int i = 0; i < data.Length; i++)
                             {
                                 int channelId = (int)data[i];
-                                channels[i] = channelNames.ElementAt(channelId).Key;
+                                if (!(channelId > channelNames.Count))
+                                {
+                                    channels[i] = channelNames.ElementAt(channelId).Key;
+                                }
+                                
                             }
                         }
                         break;

@@ -84,7 +84,7 @@ namespace AssetBankPlugin
                     LoadAntStateFromBundle(bundle);
                 }
             }
-
+            var count = 0;
             // Read the main AntStateAsset.
             using (var r = new NativeReader(s))
             {
@@ -93,16 +93,19 @@ namespace AssetBankPlugin
                 var skelEbx = App.AssetManager.GetEbx(opt.ExportSkeletonAsset);
                 dynamic skel = skelEbx.RootObject;
 
-                var skeleton = SkeletonAsset.ConvertToInternal(skel);
+                var skeleton = SkeletonAssetExport.ConvertToInternal(skel);
+                
                 foreach (var dataName in bank.DataNames)
                 {
                     var dat = AntRefTable.Get(dataName.Value);
                     if (dat is AnimationAsset anim)
                     {
                         anim.Name = dataName.Key;
-                        anim.Channels = anim.GetChannels(anim.ChannelToDofAsset);
-                        var intern = anim.ConvertToInternal();
-                        new AnimationExporterSEANIM().Export(intern, skeleton, Path.GetDirectoryName(path));
+                            anim.Channels = anim.GetChannels(anim.ChannelToDofAsset);
+                            var intern = anim.ConvertToInternal();
+                            new AnimationExporterSEANIM().Export(intern, skeleton, Path.GetDirectoryName(path));
+                      
+                        
                     }
                 }
             }

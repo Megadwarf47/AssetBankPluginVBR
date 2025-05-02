@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 
 namespace AssetBankPlugin.Export
 {
-    public class SkeletonAsset
+    public class SkeletonAssetExport
     {
         public static InternalSkeleton ConvertToInternal(dynamic dbx)
         {

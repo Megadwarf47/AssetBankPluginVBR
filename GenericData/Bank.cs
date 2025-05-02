@@ -23,6 +23,8 @@ namespace AssetBankPlugin.GenericData
 
             switch ((ProfileVersion)ProfilesLibrary.DataVersion)
             {
+                case ProfileVersion.PlantsVsZombiesGardenWarfare2:
+                case ProfileVersion.PlantsVsZombiesGardenWarfare:
                 case ProfileVersion.Battlefield4:
                 case ProfileVersion.Battlefield1:
                     {
