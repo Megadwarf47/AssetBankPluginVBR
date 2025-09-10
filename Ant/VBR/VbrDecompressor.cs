@@ -133,28 +133,12 @@ namespace AssetBankPlugin.Ant
             result += minus;
             return result;
         }
-        public static short[] BytesToSignedShorts(ArraySegment<byte> segment)
-        {
-            byte[] bytes = segment.Array;
-            int offset = segment.Offset;
-            int length = segment.Count;
-
-            if (length % 2 != 0)
-                throw new ArgumentException("Byte array length must be even.");
-
-            short[] shorts = new short[length / 2];
-            for (int i = 0; i < length; i += 2)
-            {
-                shorts[i / 2] = (short)(bytes[offset + i] | (bytes[offset + i + 1] << 8));
-            }
-            return shorts;
-        }
         public List<Vector4> Decompress()
         {
-            if(Name!="Gargantuar_Idle_Right_Turn_180 Anim")
-            {
-                return null;
-            }
+            //    if (Name != "Gargantuar_Idle_Right_Turn_180 Anim")
+            //    {
+            //        return null;
+            //    }
             var channelCount = (QuaternionCount * 4) + (Vector3Count * 3);
             var s_DofCount = (QuaternionCount) + (Vector3Count);
             var constDofCount = (ConstQuaternionCount * 4) + (ConstVector3Count * 3);
@@ -170,11 +154,9 @@ namespace AssetBankPlugin.Ant
             byte[] fData = new byte[Data.Length - offset];
             byte[] MetaData = new byte[offset];
             byte[] DofTableDescBytes = new byte[ConstChanMapSize];
-            byte[] bitsPerSubbloc = new byte[channelCount * 4];
+            byte[] numbitsByte = new byte[channelCount * 4];
             Array.Copy(Data, offset, fData, 0, fData.Length);
             int count = 0;
-            ArraySegment<byte> segment = new ArraySegment<byte>(MetaData, count, channelCount * 2);
-            DeltaBaseX = BytesToSignedShorts(segment);
             Array.Copy(Data, 0, MetaData, 0, offset);
             //read constant indice values from data header
             PaletteIndexes = new byte[constDofCount];
@@ -182,90 +164,22 @@ namespace AssetBankPlugin.Ant
             //read constChanMap values from data header
             ConstChanMap = new byte[ConstChanMapSize];
             Array.Copy(MetaData, constDofCount, ConstChanMap,0, ConstChanMapSize);
+            
+            //read numbits values from data header
+            offset = constDofCount + ConstChanMapSize;
+            Array.Copy(MetaData, offset, numbitsByte, 0, numbitsByte.Length);
             //read vector offsets from data header
             VectorOffsets = new byte[VectorOffsetSize];
-            Array.Copy(MetaData, constDofCount+ConstChanMapSize, VectorOffsets, 0, VectorOffsetSize);
-            //read bitspersubblock values from data header
-            offset = constDofCount + ConstChanMapSize;
-            Array.Copy(MetaData, offset, bitsPerSubbloc, 0, bitsPerSubbloc.Length);
+            Array.Copy(MetaData, constDofCount + ConstChanMapSize + channelCount * 4, VectorOffsets, 0, VectorOffsetSize);
             ushort[] bitsPerSubblock = new ushort[s_DofCount * 8];
+            //turn numbits values from bytes into nibbles
+            byte[] numbitsNibble = new byte[numbitsByte.Length * 2]; // Each byte becomes 2 nibbles
+                for (int i = 0; i < numbitsByte.Length; i++)
+                {
+                    numbitsNibble[i * 2+1] = (byte)((numbitsByte[i] >> 4) & 0x0F);     // Upper nibble
+                    numbitsNibble[i * 2] = (byte)(numbitsByte[i] & 0x0F);        // Lower nibble
+                }
             
-            // turn bits persubbloc into nibbles for sorting out vectors
-            byte[] bitsPerSubblockNibble = new byte[bitsPerSubbloc.Length * 2];
-
-            for (int i = 0; i < bitsPerSubbloc.Length; i++)
-            {
-                bitsPerSubblockNibble[i * 2] = (byte)((bitsPerSubbloc[i] >> 4) & 0x0F); // High nibble
-                bitsPerSubblockNibble[i * 2 + 1] = (byte)(bitsPerSubbloc[i] & 0x0F);     // Low nibble
-            }
-            //turn nibbles into ushorts for processing
-            for (   int i = 0; i < s_DofCount; i++)
-            {
-
-                if (i < QuaternionCount)
-                {
-                    for(int j = 0; j < 8; j++)
-                    {
-                        byte bitsX = bitsPerSubblockNibble[(i * 32)+j];
-                        byte bitsY = bitsPerSubblockNibble[(i * 32) + 8+j];
-                        byte bitsZ = bitsPerSubblockNibble[(i * 32) + 16+j];
-                        byte bitsW = bitsPerSubblockNibble[(i * 32) + 24+j];
-                        ushort bits = (ushort)(
-                            (bitsX << 12) |  // Shift 1st nibble to bits 12-15
-                            (bitsY << 8) |  // Shift 2nd nibble to bits 8-11
-                            (bitsZ << 4) |  // Shift 3rd nibble to bits 4-7
-                            bitsW            // 4th nibble stays in bits 0-3
-                        );
-                        bitsPerSubblock[(i*8)+j] = bits;
-                    }
-                 
-                }
-                else
-                {
-                    int quatNibbles = QuaternionCount * 32;
-                    int vectorNibbles = (i - QuaternionCount) * 24;
-                    for (int j = 0; j < 8; j++)
-                    {
-                        
-                        byte bitsX = bitsPerSubblockNibble[quatNibbles+vectorNibbles + j];
-                        byte bitsY = bitsPerSubblockNibble[quatNibbles + vectorNibbles + 8 + j];
-                        byte bitsZ = bitsPerSubblockNibble[quatNibbles + vectorNibbles + 8 + j];
-                        byte bitsW = 0;
-                        ushort bits = (ushort)(
-                            (bitsX << 12) |  // Shift 1st nibble to bits 12-15
-                            (bitsY << 8) |  // Shift 2nd nibble to bits 8-11
-                            (bitsZ << 4) |  // Shift 3rd nibble to bits 4-7
-                            bitsW            // 4th nibble stays in bits 0-3
-                        );
-                        bitsPerSubblock[i*8+j] = bits;
-                    }
-                }
-            }
-
-            var s_SubBlockTotal = 0;
-            for (var i = 0; i < s_DofCount; i++)
-            {
-
-                var s_SubBlocksCount = (byte)(8);
-
-                var s_DofData = new DofTable(s_SubBlocksCount);
-                //creates table to store bit sizes for each 
-                {
-                    s_DofData.BitsPerSubBlock = new DofTable.BitsPerComponent[s_DofData.SubBlockCount];
-                    for (var j = 0; j < s_DofData.SubBlockCount; j++)
-                        // decodes the bits per subblock number into the actual bits for that subblock using a bitmask(each byte in the ushort represent x,y,z or w)
-                        s_DofData.BitsPerSubBlock[j] = new DofTable.BitsPerComponent(bitsPerSubblock[s_SubBlockTotal + j]);
-
-                }
-
-
-                dofTable[i] = s_DofData;
-
-                s_SubBlockTotal += s_SubBlocksCount;
-
-            }
-            int bitCount = 0;
-            int counter = 0;
             //create arrays for each frameblock
             byte[][] frameBlockData = new byte[FrameBlockSize][];
             offset = 0;
@@ -276,15 +190,12 @@ namespace AssetBankPlugin.Ant
                 Array.Copy(fData, offset, frameBlockData[i], 0, FrameBlockSizes[i]);
                 offset += FrameBlockSizes[i];
             }
-            var numbitSum=0;
-            for(var i = 0;i<s_DofCount;i++)
+            var numbitCount = 0;
+            for(var i=0;i<numbitsNibble.Length;i++)
             {
-                for (var j = 0; j < 8; j++)
-                {
-                    numbitSum += dofTable[i].BitsPerSubBlock[j].BitSum;
-                }
+                numbitCount += numbitsNibble[i];
             }
-            bitCount = 0;
+            int bitCount = 0;
             var bitsLeft = 0;
             int[] rotTable = new int[FrameBlockSize];
             int[] TrjTable = new int[FrameBlockSize];
@@ -292,72 +203,78 @@ namespace AssetBankPlugin.Ant
             var blocks = new List<List<short>>();
             for (var blockFrame = 0; blockFrame < (NumKeys + 7) / 8; blockFrame++)
             {
-                var r = new BitReader(new MemoryStream(frameBlockData[blockFrame]), 64, FrostySdk.IO.Endian.Big);
+                var r = new BitReader(new MemoryStream(frameBlockData[blockFrame]), 128, FrostySdk.IO.Endian.Big);
                 bitCount = 24;
+                var numbitIndex = 0;
+                var presenceCount = 0;
                 //read rot table bytes
                 rotTable[blockFrame] = (int)r.ReadUIntHigh(8)+1;
                 TrjTable[blockFrame] = (int)r.ReadUIntHigh(8)+1;
                 TraTable [blockFrame] = (int)r.ReadUIntHigh(8)+1;
-                // go through each dof
-                for (var dofIdx = 0; dofIdx < dofTable.Length; dofIdx++)
+                //go through each channel
+                var block = new List<short>();
+                for (var chanIdx = 0; chanIdx < channelCount; chanIdx++)
                 {
-                    var block = new List<short>();
-                    var blockx = new List<short>();
-                    var blocky = new List<short>();
-                    var blockz = new List<short>();
-                    var blockw = new List<short>();
-                    var channelType = "x";
-                    var subBlock = dofTable[dofIdx];
-
-                    var s_Components = subBlock.BitsPerSubBlock;
-
-                    //go through each channel once at a time
-                    channelType = "x";
-                    blockx = readChannel(s_Components, r, channelType);
-                    bitCount += blockx.Last();
-                    blockx.RemoveAt(blockx.Count-1);
-                    channelType = "y";
-
-                    blocky = readChannel(s_Components, r, channelType);
-                    bitCount += blocky.Last();
-                    blocky.RemoveAt(blocky.Count - 1);
-                    channelType = "z";
-
-                    blockz = readChannel(s_Components, r, channelType);
-                    bitCount += blockz.Last();
-                    blockz.RemoveAt(blockz.Count - 1);
-                    channelType = "x";
-
-                    //if quaternion then we have a w channel
-                    if (dofIdx < QuaternionCount)
+                    
+                    //go through each channel 8 times
+                        int[] presence = new int[8];
+                        int[] sign = new int[8];
+                        short value = 0;
+                    //read presence bits
+                    for (int j = 0; j < 8; j++)
+                            {
+                                if (numbitsNibble[numbitIndex+j]> 0)
+                                {
+                                    presence[j] = (int)r.ReadUIntHigh(1);
+                                    bitCount++;
+                                }
+                                else presence[j] = 0;
+                            }
+                    for (int j = 0; j < 8; j++)
+                        //read sign bits if theres a value
                     {
-                        blockw = readChannel(s_Components, r, channelType);
-                        bitCount += blockw.Last();
-                        blockw.RemoveAt(blockw.Count - 1);
-
-
-                    }
-                    else // if vector we pad with an empty value
-                    {
-                       for(var j = 0;j<8;j++)
+                        if (presence[j] >0)
                         {
-                            blockw.Add(0);
+                            if (numbitsNibble[numbitIndex + j] > 0)
+                            {
+                                sign[j] = (int)r.ReadUIntHigh(1);
+                                bitCount++;
+                            }
+                            else presence[j] = 0;
                         }
                     }
-                        //sort blocks into a one final block
-                        for (int i = 0; i < 8; i++)
+                    for (int j = 0; j < 8; j++)
+                    {
+                        if (presence[j] > 0)
                         {
-                            block.Add(blockx[i]);
-                            block.Add(blocky[i]);
-                        block.Add(blockz[i]);
-                                block.Add(blockw[i]);
+                            value = (short)r.ReadUIntHigh(numbitsNibble[numbitIndex]);
+                            bitCount += numbitsNibble[numbitIndex];
+                            if (sign[j] < 1)
+                            {
+                                value = (short)-value;
+                            }
                         }
+                        numbitIndex++;
+
+
+                        block.Add(value);
+//check if this boundary is correct
+                        if (chanIdx > QuaternionCount * 4)
+                        { 
+                            if (block.Count()%3 == 0)
+                            {
+                                block.Add((short)0);
+                                block.Clear();
+                            }
+                        }
+                        
+                    }
                     blocks.Add(block);
                 }
 
 
 
-                bitsLeft = FrameBlockSizes[blockFrame]*8 - bitCount;
+                bitsLeft = FrameBlockSizes[blockFrame] * 8 - bitCount;
             }
 
             var result = new List<Vector4>();
@@ -381,95 +298,6 @@ namespace AssetBankPlugin.Ant
 
             return result;
 
-        }
-        public List<short> readChannel(DofTable.BitsPerComponent[] s_Components,BitReader r,string channelType)
-        {
-            int[] presence = new int[8];
-            int[] sign = new int[8];
-            var block = new List<short>();
-            short channelData = 0;
-            short bitsToRead = 0;
-            short bitCount=0;
-
-            var count = 0;
-            var result = 0;
-            foreach (var s_Component in s_Components)
-            {
-                switch (channelType)
-                {
-                    case "x":
-                        bitsToRead = (short)s_Component.SafeBitsX(CatchAllBitCount);
-                        break;
-                    case "y":
-                        bitsToRead = (short)s_Component.SafeBitsY(CatchAllBitCount);
-                        break;
-                    case "z":
-                        bitsToRead = (short)s_Component.SafeBitsZ(CatchAllBitCount);
-                        break;
-                    case "w":
-                        bitsToRead = (short)s_Component.SafeBitsW(CatchAllBitCount);
-                        break;
-                }
-                // dont read presence bit if numbits is 0
-                if (bitsToRead > 0)
-                {
-                    presence[count] = (int)r.ReadUIntHigh(1);
-                 
-                    count++;
-
-                }
-                
-                bitCount += 1;
-            }
-            
-            for (int j = 0; j < 8; j++)
-            {
-                // dont read sign bit if presence bit is 0
-                if (presence[j] > 0)
-                {
-                    sign[j] = (int)r.ReadUIntHigh(1);
-                    bitCount += 1;
-                }
-            }
-            count = 0;
-            foreach (var s_Component in s_Components)
-            {
-                
-                if (presence[count] > 0)
-                {
-                    switch (channelType)
-                    {
-                        case "x":
-                            bitsToRead = (short)s_Component.SafeBitsX(CatchAllBitCount);
-                            break;
-                        case "y":
-                            bitsToRead = (short)s_Component.SafeBitsY(CatchAllBitCount);
-                            break;
-                        case "z":
-                            bitsToRead = (short)s_Component.SafeBitsZ(CatchAllBitCount);
-                            break;
-                        case "w":
-                            bitsToRead = (short)s_Component.SafeBitsW(CatchAllBitCount);
-                            break;
-                    }
-                    bitCount += bitsToRead;
-
-                    channelData = (short)r.ReadUIntHigh(bitsToRead);
-                    if (sign[count] == 0)
-                    {
-                        channelData *= -1;
-                    }
-                    block.Add(channelData);
-                    count++;
-                } else
-                {
-                    channelData = 0;
-                    block.Add(channelData);
-                    count++;
-                }
-            }
-            block.Add(bitCount);
-            return block;
         }
 
     }

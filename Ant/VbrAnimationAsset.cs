@@ -227,11 +227,15 @@ namespace AssetBankPlugin.Ant
                 
                 // add const quaternions
                 var PaletteIndex = 0;
+                Vector4 qDelta = new Vector4(QuatMax = QuatMin);
+                Vector4 qMin = new Vector4(QuatMin);
                 for (int channelIdx = 0; channelIdx < ConstQuaternionCount; channelIdx++)
                         {
                     mapping = (byte)constQuatMap[channelIdx];
                     //paletteindexes has 4 indexes for each quat one after another
                     Vector4 element = new Vector4(ConstantPalette[PaletteIndexes[PaletteIndex]], ConstantPalette[PaletteIndexes[PaletteIndex+1]], ConstantPalette[PaletteIndexes[PaletteIndex+2]], ConstantPalette[PaletteIndexes[PaletteIndex+3]]);
+                    element *= qDelta;
+                    element += qMin;
                     rotations[mapping] = Quaternion.Normalize(new Quaternion(element.X, element.Y, element.Z, element.W));
 
                     PaletteIndex += 4;
@@ -248,13 +252,18 @@ namespace AssetBankPlugin.Ant
                 // We need to differentiate between Scale and Position.
                 //add const vectors
                 scaleCounter = 0;
+                Vector3 vDelta = new Vector3(Vec3Max = Vec3Min);
+                Vector3 vMin = new Vector3(Vec3Min);
                 for (int channelIdx = 0; channelIdx < ConstVector3Count; channelIdx++)
                 {
                     mapping = (byte)constVectorMap[channelIdx];
                     //paletteindexes has 3 indexes for each vector one after another after the quats
                     Vector3 element = new Vector3(ConstantPalette[PaletteIndexes[PaletteIndex]], ConstantPalette[PaletteIndexes[PaletteIndex + 1]], ConstantPalette[PaletteIndexes[PaletteIndex + 2]]);
+                    
                     if (Channels.ElementAt(mapping).Value == BoneChannelType.Position)
                     {
+                        element *= vDelta;
+                        element += vMin;
                         positions[mapping-ConstQuaternionCount-QuaternionCount- scaleCounter]= (new Vector3(element.X, element.Y, element.Z));
                     }
                     else

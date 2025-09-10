@@ -101,9 +101,9 @@ namespace AssetBankPlugin
                     if (dat is AnimationAsset anim)
                     {
                         anim.Name = dataName.Key;
-                            anim.Channels = anim.GetChannels(anim.ChannelToDofAsset);
-                            var intern = anim.ConvertToInternal();
-                            new AnimationExporterSEANIM().Export(intern, skeleton, Path.GetDirectoryName(path));
+                            //anim.Channels = anim.GetChannels(anim.ChannelToDofAsset);
+                            //var intern = anim.ConvertToInternal();
+                            //new AnimationExporterSEANIM().Export(intern, skeleton, Path.GetDirectoryName(path));
                       
                         
                     }
