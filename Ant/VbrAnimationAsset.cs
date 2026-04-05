@@ -231,7 +231,7 @@ namespace AssetBankPlugin.Ant
                 
                 // add const quaternions
                 var PaletteIndex = 0;
-                Vector4 qDelta = new Vector4(QuatMax = QuatMin);
+                Vector4 qDelta = new Vector4(QuatMax - QuatMin);
                 Vector4 qMin = new Vector4(QuatMin);
                 for (int channelIdx = 0; channelIdx < ConstQuaternionCount; channelIdx++)
                         {
@@ -257,7 +257,7 @@ namespace AssetBankPlugin.Ant
                 //add const vectors
                 scaleCounter = 0;
                 int prevMapping = 0;
-                Vector3 vDelta = new Vector3(Vec3Max = Vec3Min);
+                Vector3 vDelta = new Vector3(Vec3Max - Vec3Min);
                 Vector3 vMin = new Vector3(Vec3Min);
                 for (int channelIdx = 0; channelIdx < ConstVector3Count; channelIdx++)
                 {
