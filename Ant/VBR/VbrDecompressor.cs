@@ -112,10 +112,10 @@ namespace AssetBankPlugin.Ant
         }
         public List<Vector4> Decompress()
         {
-            if (Name != "SniperCactus_Idle Anim")
-            {
-                return null;
-            }
+            //if (Name != "SniperCactus_Idle Anim")
+            //{
+            //    return null;
+            //}
             var channelCount = (QuaternionCount * 4) + (Vector3Count * 3);
             var DofCount = (QuaternionCount) + (Vector3Count);
             var constDofCount = (ConstQuaternionCount * 4) + (ConstVector3Count * 3);
