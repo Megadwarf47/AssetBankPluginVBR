@@ -98,6 +98,10 @@ namespace AssetBankPlugin.Ant
 
         public override InternalAnimation ConvertToInternal()
         {
+            //if (Name != "SniperCactus_Idle Anim")
+            //{
+            //    return null;
+            //}
             var ret = new InternalAnimation();
 
             List<string> posChannels = new List<string>();
@@ -145,8 +149,8 @@ namespace AssetBankPlugin.Ant
             var chanMapOffset = 1;
             var chanMapCount = 0;
 
-            var mapping = ConstChanMap[0];
-            var valuesToMap = ConstChanMap[chanMapOffset];
+            int mapping = ConstChanMap[0];
+            int valuesToMap = ConstChanMap[chanMapOffset];
             int[] constQuatMap = new int[ConstQuaternionCount];
             int[] QuatMap = new int[QuaternionCount];
             int[] constVectorMap = new int[ConstVector3Count];
@@ -220,9 +224,9 @@ namespace AssetBankPlugin.Ant
                 for (var j=0; j < rotations.Capacity; j++)
                     rotations.Add(new Quaternion(0.0f,0.0f,0.0f,0.0f));
                 for (var j = 0; j < positions.Capacity; j++)
-                    positions.Add(new Vector3(0.0f, 0.0f, 0.0f));
+                    positions.Add(new Vector3());
                 for (var j = 0; j < scales.Capacity; j++)
-                    scales.Add(new Vector3(0.0f, 0.0f, 0.0f));
+                    scales.Add(new Vector3());
                
                 
                 // add const quaternions
@@ -231,7 +235,7 @@ namespace AssetBankPlugin.Ant
                 Vector4 qMin = new Vector4(QuatMin);
                 for (int channelIdx = 0; channelIdx < ConstQuaternionCount; channelIdx++)
                         {
-                    mapping = (byte)constQuatMap[channelIdx];
+                    mapping = (int)constQuatMap[channelIdx];
                     //paletteindexes has 4 indexes for each quat one after another
                     Vector4 element = new Vector4(ConstantPalette[PaletteIndexes[PaletteIndex]], ConstantPalette[PaletteIndexes[PaletteIndex+1]], ConstantPalette[PaletteIndexes[PaletteIndex+2]], ConstantPalette[PaletteIndexes[PaletteIndex+3]]);
                     element *= qDelta;
@@ -242,7 +246,7 @@ namespace AssetBankPlugin.Ant
                 }
                 for (int channelIdx = 0; channelIdx < QuaternionCount; channelIdx++)
                 {
-                    mapping = (byte)QuatMap[channelIdx];
+                    mapping = (int)QuatMap[channelIdx];
                     int pos = (int)(i * dofCount + channelIdx);
                     Vector4 element = DecompressedData[pos];
 
@@ -252,11 +256,20 @@ namespace AssetBankPlugin.Ant
                 // We need to differentiate between Scale and Position.
                 //add const vectors
                 scaleCounter = 0;
+                int prevMapping = 0;
                 Vector3 vDelta = new Vector3(Vec3Max = Vec3Min);
                 Vector3 vMin = new Vector3(Vec3Min);
                 for (int channelIdx = 0; channelIdx < ConstVector3Count; channelIdx++)
                 {
-                    mapping = (byte)constVectorMap[channelIdx];
+                    prevMapping = mapping;
+                    mapping = (int)constVectorMap[channelIdx];
+                    for(int j = prevMapping+1;j<mapping;j++)
+                    {
+                        if (Channels.ElementAt(j).Value== BoneChannelType.Scale)
+                        {
+                            scaleCounter++;
+                        }
+                    }
                     //paletteindexes has 3 indexes for each vector one after another after the quats
                     Vector3 element = new Vector3(ConstantPalette[PaletteIndexes[PaletteIndex]], ConstantPalette[PaletteIndexes[PaletteIndex + 1]], ConstantPalette[PaletteIndexes[PaletteIndex + 2]]);
                     
@@ -264,7 +277,7 @@ namespace AssetBankPlugin.Ant
                     {
                         element *= vDelta;
                         element += vMin;
-                        positions[mapping-ConstQuaternionCount-QuaternionCount- scaleCounter]= (new Vector3(element.X, element.Y, element.Z));
+                        positions[mapping-ConstQuaternionCount-QuaternionCount - scaleCounter]= (new Vector3(element.X, element.Y, element.Z));
                     }
                     else
                     {
@@ -274,17 +287,28 @@ namespace AssetBankPlugin.Ant
 
                         PaletteIndex += 3;
                 }
-                
+                int posIdx = 0;
+                scaleCounter = 0;
+                prevMapping = QuaternionCount + ConstQuaternionCount;
+                mapping = prevMapping;
                 for (int channelIdx = 0; channelIdx < Vector3Count; channelIdx++)
                 {
+                    prevMapping = mapping;
+                    mapping = (int)VectorMap[channelIdx];
+                    for (int j = prevMapping + 1; j < mapping; j++)
+                    {
+                        if (Channels.ElementAt(j).Value == BoneChannelType.Scale)
+                        {
+                            scaleCounter++;
+                        }
+                    }
                     int pos = (int)(i * dofCount + QuaternionCount + channelIdx);
                     Vector4 element = DecompressedData[pos];
                     if (Channels.ElementAt(mapping).Value == BoneChannelType.Position)
                     {
-                        
-
-                        positions[mapping - ConstQuaternionCount - QuaternionCount-scaleCounter] = (new Vector3(element.X, element.Y, element.Z));
+                        positions[mapping - ConstQuaternionCount - QuaternionCount - scaleCounter] = (new Vector3(element.X, element.Y, element.Z));
                     }
+
                     else
                     {
                         scales[scaleCounter] = (new Vector3(element.X, element.Y, element.Z));

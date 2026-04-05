@@ -134,7 +134,7 @@ namespace AssetBankPlugin.Ant
             uint[] data = dof.IndexData;
             var channels = new List<string>();
 
-            if (ProfilesLibrary.IsLoaded(ProfileVersion.PlantsVsZombiesGardenWarfare2))
+            if (ProfilesLibrary.IsLoaded(ProfileVersion.PlantsVsZombiesGardenWarfare2)| ProfilesLibrary.IsLoaded(ProfileVersion.PlantsVsZombiesGardenWarfare))
             {
                 // TODO: crashes when exporting Worlds/Hub/Props/Hub_Prop_Sewer_Rat_Animations
                 for (int i = 0; i < data.Length; i++)

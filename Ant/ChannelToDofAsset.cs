@@ -28,6 +28,26 @@ namespace AssetBankPlugin.Ant
                     IndexData = Array.ConvertAll(dofIds, val => checked((uint)val));
                 } break;
                 case ProfileVersion.PlantsVsZombiesGardenWarfare:
+                {
+                        StorageType = (StorageType)Convert.ToInt32(data["StorageType"]);
+                        byte[] dofIds = (byte[])data["IndexData"];
+                        if (dofIds.Length > 256)
+                        {
+                            ushort[] ushortDofIds = new ushort[dofIds.Length/2];
+                            for(int i = 0; i < dofIds.Length/2; i++)
+                            {
+                                ushortDofIds[i] = (ushort)((dofIds[i * 2] << 8) | dofIds[i * 2 + 1]);
+                            }
+                            
+                            IndexData = Array.ConvertAll(ushortDofIds, val => checked((uint)val));
+                        }
+                        else
+                        {
+                            IndexData = Array.ConvertAll(dofIds, val => checked((uint)val));
+                        }
+                        
+                    }
+                    break;
                 case ProfileVersion.Battlefield4:
                 {
                     StorageType = (StorageType)Convert.ToInt32(data["StorageType"]);
