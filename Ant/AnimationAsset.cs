@@ -23,7 +23,6 @@ namespace AssetBankPlugin.Ant
 
         public StorageType StorageType;
 
-
         public AnimationAsset() { }
 
         public override void SetData(Dictionary<string, object> data)
@@ -34,7 +33,7 @@ namespace AssetBankPlugin.Ant
             AnimId = Convert.ToInt32(data["AnimId"]);
             TrimOffset = (float)data["TrimOffset"];
             EndFrame = Convert.ToUInt16(data["EndFrame"]);
-            // Newer titles don't store the additive flag, not sure why.
+
             if (data.TryGetValue("Additive", out object additive))
             {
                 Additive = (bool)additive;
@@ -44,13 +43,11 @@ namespace AssetBankPlugin.Ant
 
         public Dictionary<string, BoneChannelType> GetChannels(Guid channelToDofAsset)
         {
-            // Find the ClipControllerAsset which references the Animation.
             LayoutHierarchyAsset hierarchy = null;
             ChannelToDofAsset dof;
 
             switch ((ProfileVersion)ProfilesLibrary.DataVersion)
             {
-                
                 case ProfileVersion.PlantsVsZombiesGardenWarfare2:
                 case ProfileVersion.Battlefield1:
                     {
@@ -59,12 +56,16 @@ namespace AssetBankPlugin.Ant
                         {
                             if (c.Value is ClipControllerAsset cl)
                             {
-
                                 if (cl.Anims.Contains(ID))
                                 {
-                                    FPS = cl.FPS;
-                                    hierarchy = (LayoutHierarchyAsset)AntRefTable.Get(cl.Target);
-                                    break;
+                                    // FIX: Safely check if the target is actually a LayoutHierarchyAsset
+                                    var targetAsset = AntRefTable.Get(cl.Target);
+                                    if (targetAsset is LayoutHierarchyAsset lh)
+                                    {
+                                        FPS = cl.FPS;
+                                        hierarchy = lh;
+                                        break;
+                                    }
                                 }
                             }
                         }
@@ -80,9 +81,14 @@ namespace AssetBankPlugin.Ant
                             {
                                 if (cl.Anim == ID)
                                 {
-                                    FPS = cl.FPS;
-                                    hierarchy = (LayoutHierarchyAsset)AntRefTable.Get(cl.Target);
-                                    break;
+                                    // FIX: Safe casting
+                                    var targetAsset = AntRefTable.Get(cl.Target);
+                                    if (targetAsset is LayoutHierarchyAsset lh)
+                                    {
+                                        FPS = cl.FPS;
+                                        hierarchy = lh;
+                                        break;
+                                    }
                                 }
                             }
                         }
@@ -99,9 +105,14 @@ namespace AssetBankPlugin.Ant
                             {
                                 if (cl.Anim == ID || cl.Anim == AntRefTable.InternalRefs[ID])
                                 {
-                                    FPS = cl.FPS;
-                                    hierarchy = (LayoutHierarchyAsset)AntRefTable.Get(cl.Target);
-                                    break;
+                                    // FIX: Safe casting
+                                    var targetAsset = AntRefTable.Get(cl.Target);
+                                    if (targetAsset is LayoutHierarchyAsset lh)
+                                    {
+                                        FPS = cl.FPS;
+                                        hierarchy = lh;
+                                        break;
+                                    }
                                 }
                             }
                         }
@@ -109,69 +120,74 @@ namespace AssetBankPlugin.Ant
                     break;
             }
 
-            // Loop through all LayoutAssets and append them.
+            // Guard: if no matching controller with a LayoutHierarchy target was found, stop here safely.
+            if (hierarchy == null)
+                return new Dictionary<string, BoneChannelType>();
+
             var channelNames = new Dictionary<string, BoneChannelType>();
             for (int i = 0; i < hierarchy.LayoutAssets.Length; i++)
             {
                 AntAsset layoutAsset = AntRefTable.Get(hierarchy.LayoutAssets[i]);
 
-                if(layoutAsset is LayoutAsset la)
+                if (layoutAsset is LayoutAsset la)
                 {
                     for (int x = 0; x < la.Slots.Count; x++)
                     {
-                        channelNames.Add(la.Slots[x].Name, la.Slots[x].Type);
+                        channelNames[la.Slots[x].Name] = la.Slots[x].Type;
                     }
                 }
-                else if(layoutAsset is DeltaTrajLayoutAsset)
+                else if (layoutAsset is DeltaTrajLayoutAsset)
                 {
                     for (int x = 0; x < 8; x++)
                     {
-                        channelNames.Add(""+x, BoneChannelType.Rotation);
+                        channelNames["" + x] = BoneChannelType.Rotation;
                     }
                 }
             }
-            
+
             uint[] data = dof.IndexData;
+            var channelNamesList = channelNames.ToList();
             var channels = new List<string>();
 
-            if (ProfilesLibrary.IsLoaded(ProfileVersion.PlantsVsZombiesGardenWarfare2)| ProfilesLibrary.IsLoaded(ProfileVersion.PlantsVsZombiesGardenWarfare))
+            if (ProfilesLibrary.IsLoaded(ProfileVersion.PlantsVsZombiesGardenWarfare2) || ProfilesLibrary.IsLoaded(ProfileVersion.PlantsVsZombiesGardenWarfare))
             {
-                // TODO: crashes when exporting Worlds/Hub/Props/Hub_Prop_Sewer_Rat_Animations
+                for (int i = 0; i < data.Length; i++) channels.Add("");
+
                 for (int i = 0; i < data.Length; i++)
                 {
-                    channels.Add("");
-                }
-
-                    for (int i = 0; i < data.Length; i++)
+                    int channelId = (int)data[i];
+                    if (channelId >= 0 && channelId < channelNamesList.Count)
                     {
-                        int channelId = (int)data[i];
-                            channels[i] = channelNames.ElementAt(channelId).Key;
-                        }
+                        channels[i] = channelNamesList[channelId].Key;
                     }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[Anim Export Warning] PvZ: Skipped out-of-bounds bone channel {channelId}");
+                    }
+                }
+            }
             else
             {
                 switch (StorageType)
                 {
-                    // If we overwrite the channels, then just remap the orders.
                     case StorageType.Overwrite:
                         {
-                            for (int i = 0; i < data.Length; i++)
-                            {
-                                channels.Add("");
-                            }
+                            for (int i = 0; i < data.Length; i++) channels.Add("");
 
                             for (int i = 0; i < data.Length; i++)
                             {
                                 int channelId = (int)data[i];
-                                if (!(channelId > channelNames.Count))
+                                if (channelId >= 0 && channelId < channelNamesList.Count)
                                 {
-                                    channels[i] = channelNames.ElementAt(channelId).Key;
+                                    channels[i] = channelNamesList[channelId].Key;
                                 }
-                                
+                                else
+                                {
+                                    System.Diagnostics.Debug.WriteLine($"[Anim Export Warning] Overwrite: Skipped out-of-bounds bone channel {channelId}");
+                                }
                             }
                         }
                         break;
-                    // If we append the channels, the first byte indicates the taget, then second byte the value.
                     case StorageType.Append:
                         {
                             var offsets = new Dictionary<int, int>();
@@ -184,20 +200,47 @@ namespace AssetBankPlugin.Ant
                                 offsets[appendTo] = offset;
                                 offset++;
 
-                                channels.Insert(offsets[appendTo], channelNames.ElementAt(channelId).Key);
+                                int targetIndex = offsets[appendTo];
+                                string channelKey = "";
+                                if (channelId >= 0 && channelId < channelNamesList.Count)
+                                {
+                                    channelKey = channelNamesList[channelId].Key;
+                                }
+                                else
+                                {
+                                    System.Diagnostics.Debug.WriteLine($"[Anim Export Warning] Append: Skipped out-of-bounds bone channel {channelId}");
+                                }
+
+                                if (targetIndex <= channels.Count)
+                                {
+                                    channels.Insert(targetIndex, channelKey);
+                                }
+                                else
+                                {
+                                    channels.Add(channelKey);
+                                }
                             }
                         }
                         break;
                 }
             }
-            
-            // Reorder
+
             var output = new Dictionary<string, BoneChannelType>();
             for (int i = 0; i < channels.Count; i++)
             {
-                output[channels[i]] =  channelNames[channels[i]];
+                string ch = channels[i];
+                if (string.IsNullOrEmpty(ch)) continue;
+
+                if (channelNames.TryGetValue(ch, out BoneChannelType bct))
+                {
+                    output[ch] = bct;
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine($"[Anim Export Warning] Missing mapping: Channel '{ch}' was not found in LayoutHierarchy.");
+                }
             }
-            
+
             return output;
         }
 

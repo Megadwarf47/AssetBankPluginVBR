@@ -3,8 +3,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
-using System.Windows.Markup;
-using static FrostySdk.GeometryDeclarationDesc;
 
 namespace AssetBankPlugin.Ant
 {
@@ -47,105 +45,94 @@ namespace AssetBankPlugin.Ant
         public byte CatchAllBitCount;
         public float[] ConstantPalette;
         public ushort[] FrameBlockSizes;
-        
+
         public short[] DeltaBaseX;
         public short[] DeltaBaseY;
         public short[] DeltaBaseZ;
         public short[] DeltaBaseW;
         public ushort[] BitsPerSubblock;
-        
+
         public ushort[] KeyTimes;
         public ushort QuantizeMultBlock;
-
 
         private List<Vector4> DecompressedData = new List<Vector4>();
         public VbrAnimationAsset() { }
 
         public override void SetData(Dictionary<string, object> data)
         {
+            ID = (Guid)data["__guid"];
+            Name = (string)data["__name"];
 
-                ID = (Guid)data["__guid"];
-                Name = (string)data["__name"];
-
-                QuatMin = (float)data["QuatMin"];
-                TrajMin = (float)data["TrajMin"];
-                Vec3Min = (float)data["Vec3Min"];
-                FloatMin = (float)data["FloatMin"];
-                QuatMax = (float)data["QuatMax"];
-                TrajMax = (float)data["TrajMax"];
-                Vec3Max = (float)data["Vec3Max"];
-                FloatMax = (float)data["FloatMax"];
-                VectorOffsetScale = (float)data["VectorOffsetScale"];
-                Dct = (float)data["Dct"];
-                QuaternionCount = (ushort)data["QuaternionCount"];
-                Vector3Count = (ushort)data["Vector3Count"];
-                ConstQuaternionCount = (ushort)data["ConstQuaternionCount"];
-                ConstVector3Count = (ushort)data["ConstVector3Count"];
-                NumKeys = (ushort)data["NumKeys"];
-                ConstChanMapSize = (ushort)data["ConstChanMapSize"];
-                ConstPaletteSize = (ushort)data["ConstPaletteSize"];
-                VectorOffsetSize = (ushort)data["VectorOffsetSize"];
-                Flags = (ushort)data["Flags"];
-                ConstantPalette = (float[])data["ConstantPalette"];
-                FrameBlockSizes = (ushort[])data["FrameBlockSizes"];
-                Data = data["Data"] as byte[];
+            QuatMin = (float)data["QuatMin"];
+            TrajMin = (float)data["TrajMin"];
+            Vec3Min = (float)data["Vec3Min"];
+            FloatMin = (float)data["FloatMin"];
+            QuatMax = (float)data["QuatMax"];
+            TrajMax = (float)data["TrajMax"];
+            Vec3Max = (float)data["Vec3Max"];
+            FloatMax = (float)data["FloatMax"];
+            VectorOffsetScale = (float)data["VectorOffsetScale"];
+            Dct = (float)data["Dct"];
+            QuaternionCount = (ushort)data["QuaternionCount"];
+            Vector3Count = (ushort)data["Vector3Count"];
+            ConstQuaternionCount = (ushort)data["ConstQuaternionCount"];
+            ConstVector3Count = (ushort)data["ConstVector3Count"];
+            NumKeys = (ushort)data["NumKeys"];
+            ConstChanMapSize = (ushort)data["ConstChanMapSize"];
+            ConstPaletteSize = (ushort)data["ConstPaletteSize"];
+            VectorOffsetSize = (ushort)data["VectorOffsetSize"];
+            Flags = (ushort)data["Flags"];
+            ConstantPalette = (float[])data["ConstantPalette"];
+            FrameBlockSizes = (ushort[])data["FrameBlockSizes"];
+            Data = data["Data"] as byte[];
             FrameBlockSize = FrameBlockSizes.Length;
 
-                base.SetData(data);
+            base.SetData(data);
 
-                DecompressedData = Decompress();
-            }
+            DecompressedData = Decompress();
+        }
 
         public override InternalAnimation ConvertToInternal()
         {
-            //if (Name != "SniperCactus_Idle Anim")
-            //{
-            //    return null;
-            //}
             var ret = new InternalAnimation();
 
             List<string> posChannels = new List<string>();
             List<string> rotChannels = new List<string>();
             List<string> scaleChannels = new List<string>();
 
-            // Get all names.
-            //for each channel, write which index in the rotchannel list etc it is
-            var rotCounter = 0;
-            var VectorCounter = 0;
-            var scaleCounter = 0;
-            var scaleStart = 0;
-            int[] rotIndex = new int[ConstQuaternionCount+QuaternionCount];
-            int[] VectorIndex = new int[ConstVector3Count+Vector3Count];
-            
-            foreach (var channel in Channels)
+            var channelList = Channels.ToList();
+
+            foreach (var channel in channelList)
             {
-                
-                if (channel.Value == BoneChannelType.Rotation)
-                {
-                    rotChannels.Add(channel.Key);
-                    rotIndex[rotCounter] = rotCounter+VectorCounter;
-                    rotCounter++;
-                }
-                else if (channel.Value == BoneChannelType.Position)
-                {
-                    posChannels.Add(channel.Key);
-                    VectorIndex[VectorCounter] = rotCounter + VectorCounter;
-                    VectorCounter++;
-                }
-                else if (channel.Value == BoneChannelType.Scale)
-                {
-                    scaleChannels.Add(channel.Key);
-                    VectorIndex[VectorCounter] = rotCounter + VectorCounter;
-                    VectorCounter++;
-                    if (scaleCounter == 0)
-                    {
-                        scaleStart = VectorCounter;
-                    }
-                    scaleCounter++;
-                }
-                
+                if (channel.Value == BoneChannelType.Rotation) rotChannels.Add(channel.Key);
+                else if (channel.Value == BoneChannelType.Position) posChannels.Add(channel.Key);
+                else if (channel.Value == BoneChannelType.Scale) scaleChannels.Add(channel.Key);
             }
-            //generate mappings
+
+            // --- OPTIMIZATION 1: Arrays with -1 Sentinel Values ---
+            int[] globalToLocalRot = new int[channelList.Count];
+            int[] globalToLocalPos = new int[channelList.Count];
+            int[] globalToLocalScale = new int[channelList.Count];
+
+            // Initialize with -1 so missing/invalid channels don't default to bone 0
+            for (int i = 0; i < channelList.Count; i++)
+            {
+                globalToLocalRot[i] = -1;
+                globalToLocalPos[i] = -1;
+                globalToLocalScale[i] = -1;
+            }
+
+            int localRot = 0, localPos = 0, localScale = 0;
+            for (int g = 0; g < channelList.Count; g++)
+            {
+                switch (channelList[g].Value)
+                {
+                    case BoneChannelType.Rotation: globalToLocalRot[g] = localRot++; break;
+                    case BoneChannelType.Position: globalToLocalPos[g] = localPos++; break;
+                    case BoneChannelType.Scale: globalToLocalScale[g] = localScale++; break;
+                }
+            }
+
             var chanMapOffset = 1;
             var chanMapCount = 0;
 
@@ -155,10 +142,9 @@ namespace AssetBankPlugin.Ant
             int[] QuatMap = new int[QuaternionCount];
             int[] constVectorMap = new int[ConstVector3Count];
             int[] VectorMap = new int[Vector3Count];
+
             for (var j = 0; j < ConstQuaternionCount; j++)
             {
-
-
                 if (chanMapCount >= valuesToMap)
                 {
                     mapping += ConstChanMap[chanMapOffset + 1];
@@ -171,173 +157,162 @@ namespace AssetBankPlugin.Ant
             }
             for (var j = 0; j < ConstVector3Count; j++)
             {
-
                 if (chanMapCount >= valuesToMap)
                 {
                     mapping += ConstChanMap[chanMapOffset + 1];
                     chanMapOffset += 2;
                     valuesToMap += ConstChanMap[chanMapOffset];
                 }
-                // this mapping value refers to its position among all the channels
-                // we want the value in the positions/vector channel
                 constVectorMap[j] = mapping;
                 mapping++;
                 chanMapCount++;
             }
 
-            //get mappings for dynamic quats+vectors using the mappings which werent used for const channels
-            // all quat values come first so we can just use the original mappings
+            // --- OPTIMIZATION 2: HashSets for instant mapping resolution ---
+            var constQuatSet = new HashSet<int>(constQuatMap);
+            var constVectorSet = new HashSet<int>(constVectorMap);
 
             var QuatIndex = 0;
             for (var j = 0; j < (QuaternionCount + ConstQuaternionCount); j++)
             {
-                if (!constQuatMap.Contains(j))
+                if (!constQuatSet.Contains(j))
                 {
                     QuatMap[QuatIndex] = j;
                     QuatIndex++;
                 }
             }
-            //determine vector index using the mappings which werent used
 
             var Vector3Index = 0;
-            for (var j = ConstQuaternionCount+QuaternionCount; j < ConstQuaternionCount + QuaternionCount+(Vector3Count+ConstVector3Count); j++)
+            for (var j = ConstQuaternionCount + QuaternionCount; j < ConstQuaternionCount + QuaternionCount + (Vector3Count + ConstVector3Count); j++)
             {
-                
-                if (!constVectorMap.Contains(j))
+                if (!constVectorSet.Contains(j))
                 {
-                VectorMap[Vector3Index] = j;
-                Vector3Index++;
+                    VectorMap[Vector3Index] = j;
+                    Vector3Index++;
+                }
             }
-            }
-            // Assign values to Channels.
 
             var dofCount = QuaternionCount + Vector3Count + 0;
+
+            // --- OPTIMIZATION 4: Pre-allocate Frames to prevent memory thrashing ---
+            ret.Frames = new List<Frame>(NumKeys);
 
             for (int i = 0; i < NumKeys; i++)
             {
                 Frame frame = new Frame();
 
-                var rotations = new List<Quaternion>(rotChannels.Count);
-                var positions = new List<Vector3>(posChannels.Count);
-                var scales = new List<Vector3>(scaleChannels.Count);
-                //pad with empty values
-                for (var j=0; j < rotations.Capacity; j++)
-                    rotations.Add(new Quaternion(0.0f,0.0f,0.0f,0.0f));
-                for (var j = 0; j < positions.Capacity; j++)
-                    positions.Add(new Vector3());
-                for (var j = 0; j < scales.Capacity; j++)
-                    scales.Add(new Vector3());
-               
-                
-                // add const quaternions
+                // --- OPTIMIZATION 3: Using Arrays inside the loop prevents garbage collector stutters ---
+                var rotations = new Quaternion[rotChannels.Count];
+                var positions = new Vector3[posChannels.Count];
+                var scales = new Vector3[scaleChannels.Count];
+
                 var PaletteIndex = 0;
                 Vector4 qDelta = new Vector4(QuatMax - QuatMin);
                 Vector4 qMin = new Vector4(QuatMin);
+
                 for (int channelIdx = 0; channelIdx < ConstQuaternionCount; channelIdx++)
-                        {
-                    mapping = (int)constQuatMap[channelIdx];
-                    //paletteindexes has 4 indexes for each quat one after another
-                    Vector4 element = new Vector4(ConstantPalette[PaletteIndexes[PaletteIndex]], ConstantPalette[PaletteIndexes[PaletteIndex+1]], ConstantPalette[PaletteIndexes[PaletteIndex+2]], ConstantPalette[PaletteIndexes[PaletteIndex+3]]);
+                {
+                    int globalIdx = constQuatMap[channelIdx];
+                    Vector4 element = new Vector4(ConstantPalette[PaletteIndexes[PaletteIndex]], ConstantPalette[PaletteIndexes[PaletteIndex + 1]], ConstantPalette[PaletteIndexes[PaletteIndex + 2]], ConstantPalette[PaletteIndexes[PaletteIndex + 3]]);
                     element *= qDelta;
                     element += qMin;
-                    rotations[mapping] = Quaternion.Normalize(new Quaternion(element.X, element.Y, element.Z, element.W));
 
+                    // Arrays safeguard: checks bounds and checks if bone exists (!= -1)
+                    if (globalIdx < channelList.Count)
+                    {
+                        int localIdx = globalToLocalRot[globalIdx];
+                        if (localIdx != -1)
+                        {
+                            rotations[localIdx] = Quaternion.Normalize(new Quaternion(element.X, element.Y, element.Z, element.W));
+                        }
+                    }
                     PaletteIndex += 4;
                 }
                 for (int channelIdx = 0; channelIdx < QuaternionCount; channelIdx++)
                 {
-                    mapping = (int)QuatMap[channelIdx];
-                    int pos = (int)(i * dofCount + channelIdx);
+                    int globalIdx = QuatMap[channelIdx];
+                    int pos = i * dofCount + channelIdx;
                     Vector4 element = DecompressedData[pos];
 
-
-                    rotations[mapping] = (Quaternion.Normalize(new Quaternion(element.X, element.Y, element.Z, element.W)));
+                    if (globalIdx < channelList.Count)
+                    {
+                        int localIdx = globalToLocalRot[globalIdx];
+                        if (localIdx != -1)
+                        {
+                            rotations[localIdx] = Quaternion.Normalize(new Quaternion(element.X, element.Y, element.Z, element.W));
+                        }
+                    }
                 }
-                // We need to differentiate between Scale and Position.
-                //add const vectors
-                scaleCounter = 0;
-                int prevMapping = 0;
+
                 Vector3 vDelta = new Vector3(Vec3Max - Vec3Min);
                 Vector3 vMin = new Vector3(Vec3Min);
                 for (int channelIdx = 0; channelIdx < ConstVector3Count; channelIdx++)
                 {
-                    prevMapping = mapping;
-                    mapping = (int)constVectorMap[channelIdx];
-                    for(int j = prevMapping+1;j<mapping;j++)
-                    {
-                        if (Channels.ElementAt(j).Value== BoneChannelType.Scale)
-                        {
-                            scaleCounter++;
-                        }
-                    }
-                    //paletteindexes has 3 indexes for each vector one after another after the quats
+                    int globalIdx = constVectorMap[channelIdx];
                     Vector3 element = new Vector3(ConstantPalette[PaletteIndexes[PaletteIndex]], ConstantPalette[PaletteIndexes[PaletteIndex + 1]], ConstantPalette[PaletteIndexes[PaletteIndex + 2]]);
-                    
-                    if (Channels.ElementAt(mapping).Value == BoneChannelType.Position)
-                    {
-                        element *= vDelta;
-                        element += vMin;
-                        positions[mapping-ConstQuaternionCount-QuaternionCount - scaleCounter]= (new Vector3(element.X, element.Y, element.Z));
-                    }
-                    else
-                    {
-                        scales[scaleCounter] = new Vector3(element.X, element.Y, element.Z);
-                        scaleCounter++;
-                    }
 
-                        PaletteIndex += 3;
-                }
-                int posIdx = 0;
-                scaleCounter = 0;
-                prevMapping = QuaternionCount + ConstQuaternionCount;
-                mapping = prevMapping;
-                for (int channelIdx = 0; channelIdx < Vector3Count; channelIdx++)
-                {
-                    prevMapping = mapping;
-                    mapping = (int)VectorMap[channelIdx];
-                    for (int j = prevMapping + 1; j < mapping; j++)
+                    if (globalIdx < channelList.Count)
                     {
-                        if (Channels.ElementAt(j).Value == BoneChannelType.Scale)
+                        if (channelList[globalIdx].Value == BoneChannelType.Position)
                         {
-                            scaleCounter++;
+                            int localIdx = globalToLocalPos[globalIdx];
+                            if (localIdx != -1)
+                            {
+                                element *= vDelta;
+                                element += vMin;
+                                positions[localIdx] = new Vector3(element.X, element.Y, element.Z);
+                            }
                         }
-                    }
-                    int pos = (int)(i * dofCount + QuaternionCount + channelIdx);
-                    Vector4 element = DecompressedData[pos];
-                    if (Channels.ElementAt(mapping).Value == BoneChannelType.Position)
-                    {
-                        positions[mapping - ConstQuaternionCount - QuaternionCount - scaleCounter] = (new Vector3(element.X, element.Y, element.Z));
-                    }
-
-                    else
-                    {
-                        scales[scaleCounter] = (new Vector3(element.X, element.Y, element.Z));
-                        scaleCounter++;
+                        else
+                        {
+                            int localIdx = globalToLocalScale[globalIdx];
+                            if (localIdx != -1)
+                            {
+                                scales[localIdx] = new Vector3(element.X, element.Y, element.Z);
+                            }
+                        }
                     }
                     PaletteIndex += 3;
                 }
 
-                frame.Rotations = rotations;
-                frame.Positions = positions;
-                frame.Scales = scales;
+                for (int channelIdx = 0; channelIdx < Vector3Count; channelIdx++)
+                {
+                    int globalIdx = VectorMap[channelIdx];
+                    int pos = i * dofCount + QuaternionCount + channelIdx;
+                    Vector4 element = DecompressedData[pos];
+
+                    if (globalIdx < channelList.Count)
+                    {
+                        if (channelList[globalIdx].Value == BoneChannelType.Position)
+                        {
+                            int localIdx = globalToLocalPos[globalIdx];
+                            if (localIdx != -1)
+                            {
+                                positions[localIdx] = new Vector3(element.X, element.Y, element.Z);
+                            }
+                        }
+                        else
+                        {
+                            int localIdx = globalToLocalScale[globalIdx];
+                            if (localIdx != -1)
+                            {
+                                scales[localIdx] = new Vector3(element.X, element.Y, element.Z);
+                            }
+                        }
+                    }
+                }
+
+                frame.Rotations = rotations.ToList();
+                frame.Positions = positions.ToList();
+                frame.Scales = scales.ToList();
+                frame.FrameIndex = i * 3;
 
                 ret.Frames.Add(frame);
             }
-            for (int i = 0; i < NumKeys; i++)
-            {
-                Frame f = ret.Frames[i];
-                f.FrameIndex = i*3;
-                ret.Frames[i] = f;
-            }
 
-
-
-            for (int r = 0; r < rotChannels.Count; r++)
-                rotChannels[r] = rotChannels[r].Replace(".q", "");
-            for (int r = 0; r < posChannels.Count; r++)
-                posChannels[r] = posChannels[r].Replace(".t", "");
-            for (int r = 0; r < scaleChannels.Count; r++)
-                scaleChannels[r] = scaleChannels[r].Replace(".s", "");
+            for (int r = 0; r < rotChannels.Count; r++) rotChannels[r] = rotChannels[r].Replace(".q", "");
+            for (int r = 0; r < posChannels.Count; r++) posChannels[r] = posChannels[r].Replace(".t", "");
+            for (int r = 0; r < scaleChannels.Count; r++) scaleChannels[r] = scaleChannels[r].Replace(".s", "");
 
             ret.Name = Name;
             ret.PositionChannels = posChannels;
@@ -346,6 +321,5 @@ namespace AssetBankPlugin.Ant
             ret.Additive = Additive;
             return ret;
         }
-
     }
 }
