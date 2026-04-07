@@ -1,4 +1,5 @@
-﻿using System;
+﻿using FrostySdk;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -22,14 +23,17 @@ namespace AssetBankPlugin.Ant
         {
             Name = Convert.ToString(data["__name"]);
             ID = (Guid)data["__guid"];
-            FeatureCollection = (Guid)data["FeatureCollection"];
-            Skeleton = (Guid)data["Skeleton"];
-            DofSetLists = (Guid[])data["DofSetLists"];
-            RigDofSets = (Guid[])data["RigDofSets"];
-            DefaultVector3Values = data["DefaultVector3Values"];
-            DefaultVector4Values = data["DefaultVector4Values"];
-            DofIds = (UInt16[])data["DofIds"];
-            
+            if (ProfilesLibrary.IsLoaded(ProfileVersion.PlantsVsZombiesGardenWarfare2))
+            {
+                
+                FeatureCollection = (Guid)data["FeatureCollection"];
+                Skeleton = (Guid)data["Skeleton"];
+                DofSetLists = (Guid[])data["DofSetLists"];
+                RigDofSets = (Guid[])data["RigDofSets"];
+                DefaultVector3Values = data["DefaultVector3Values"];
+                DefaultVector4Values = data["DefaultVector4Values"];
+                DofIds = (UInt16[])data["DofIds"];
+            }
 
         }
     }
