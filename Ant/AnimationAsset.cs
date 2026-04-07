@@ -52,6 +52,7 @@ namespace AssetBankPlugin.Ant
                 case ProfileVersion.Battlefield1:
                     {
                         dof = (ChannelToDofAsset)AntRefTable.Get(ChannelToDofAsset);
+                        StorageType = dof.StorageType;
                         foreach (var c in AntRefTable.Refs)
                         {
                             if (c.Value is ClipControllerAsset cl)
@@ -147,9 +148,31 @@ namespace AssetBankPlugin.Ant
 
             uint[] data = dof.IndexData;
             var channelNamesList = channelNames.ToList();
-            var channels = new List<string>();
-
-            if (ProfilesLibrary.IsLoaded(ProfileVersion.PlantsVsZombiesGardenWarfare2) || ProfilesLibrary.IsLoaded(ProfileVersion.PlantsVsZombiesGardenWarfare))
+                var channels = new List<string>();
+            if (ProfilesLibrary.IsLoaded(ProfileVersion.PlantsVsZombiesGardenWarfare2))
+            {
+                var rig = (RigAsset)AntRefTable.Get(new Guid("00080608-0000-0000-0000-000000000000"));
+                UInt16[] dofIds = rig.DofIds;
+                uint[] actualData = new uint[data.Length];
+                for (int i = 0; i < data.Length; i++)
+                {
+                    channels.Add("");
+                    actualData[i] = (uint)Array.IndexOf(dofIds, data[i]);
+                }
+                for (int i = 0; i < data.Length; i++)
+                {
+                    int channelId = (int)data[i];
+                    if (channelId >= 0 && channelId < channelNamesList.Count)
+                    {
+                        channels[i] = channelNamesList[channelId].Key;
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[Anim Export Warning] PvZ: Skipped out-of-bounds bone channel {channelId}");
+                    }
+                }
+            }
+            else if (ProfilesLibrary.IsLoaded(ProfileVersion.PlantsVsZombiesGardenWarfare))
             {
                 for (int i = 0; i < data.Length; i++) channels.Add("");
 

@@ -42,10 +42,9 @@ namespace AssetBankPlugin.Ant
             }
         }
 
-        public float UnpackVec(short[] values, ushort frame, int chanIdx)
+        public float UnpackVec(short[] values, int coeffIdx, int chanIdx)
         {
             float result = 0.5f;
-            int coeffIdx = frame % 8;
 
             // Math happens instantly using the precomputed matrix. No arrays are created here.
             for (int i = 0; i < 8; i++)
@@ -53,7 +52,7 @@ namespace AssetBankPlugin.Ant
                 result += (float)values[i] * PrecomputedMathMatrix[coeffIdx, i];
             }
 
-            // Assign delta and minus efficiently based on original logic without allocating arrays (not sure about this one)
+            // Assign delta and minus efficiently based on original logic without allocating arrays
             float delta, minus;
             if (chanIdx >= QuaternionCount * 4)
             {
@@ -142,9 +141,12 @@ namespace AssetBankPlugin.Ant
                 offset += FrameBlockSizes[i];
             }
 
-            // Preallocate lists to prevent memory thrashing (i believe this should save millions of operations)
+            // Preallocate lists to prevent memory thrashing
             var blocks = new List<short[]>(((NumKeys + 7) / 8) * channelCount);
+            try
+            {
 
+            
             for (var blockFrame = 0; blockFrame < (NumKeys + 7) / 8; blockFrame++)
             {
                 var r = new BitReader(new MemoryStream(frameBlockData[blockFrame]), 8, FrostySdk.IO.Endian.Little);
@@ -201,11 +203,32 @@ namespace AssetBankPlugin.Ant
                     blocks.Add(block);
                 }
             }
-
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error in {this.Name}: {ex.Message}");
+            }
             var result = new List<float>(NumKeys * channelCount);
+
+            // Fix: Calculate block boundary for C++ aligned mapping
+            int framesLeft = NumKeys % 8;
+            int lastBlockStart = NumKeys - framesLeft;
+
             for (var frame = 0; frame < NumKeys; frame++)
             {
                 var blockIdx = frame / 8;
+                int coeffIdx;
+
+                if (frame >= lastBlockStart && frame > 7)
+                {
+                    // Last partial block: map frame to right-aligned slot
+                    coeffIdx = frame - (NumKeys - 8);
+                }
+                else
+                {
+                    coeffIdx = frame % 8;
+                }
+
                 for (var chanIdx = 0; chanIdx < channelCount; chanIdx++)
                 {
                     var dataIdx = blockIdx * channelCount + chanIdx;
@@ -213,9 +236,8 @@ namespace AssetBankPlugin.Ant
                     if (dataIdx >= blocks.Count)
                         break;
 
-                    // Replaced massive .ElementAt() bottleneck with standard array indexing
                     var blockc = blocks[dataIdx];
-                    result.Add(UnpackVec(blockc, (ushort)frame, chanIdx));
+                    result.Add(UnpackVec(blockc, coeffIdx, chanIdx));
                 }
             }
 

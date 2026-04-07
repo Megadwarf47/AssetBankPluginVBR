@@ -142,8 +142,9 @@ namespace AssetBankPlugin.Ant
             int[] QuatMap = new int[QuaternionCount];
             int[] constVectorMap = new int[ConstVector3Count];
             int[] VectorMap = new int[Vector3Count];
-
-            for (var j = 0; j < ConstQuaternionCount; j++)
+            try
+            {
+                for (var j = 0; j < ConstQuaternionCount; j++)
             {
                 if (chanMapCount >= valuesToMap)
                 {
@@ -171,27 +172,29 @@ namespace AssetBankPlugin.Ant
             // --- OPTIMIZATION 2: HashSets for instant mapping resolution ---
             var constQuatSet = new HashSet<int>(constQuatMap);
             var constVectorSet = new HashSet<int>(constVectorMap);
+            
 
-            var QuatIndex = 0;
-            for (var j = 0; j < (QuaternionCount + ConstQuaternionCount); j++)
-            {
-                if (!constQuatSet.Contains(j))
+
+                var QuatIndex = 0;
+                for (var j = 0; j < (QuaternionCount + ConstQuaternionCount); j++)
                 {
-                    QuatMap[QuatIndex] = j;
-                    QuatIndex++;
+                    if (!constQuatSet.Contains(j))
+                    {
+                        QuatMap[QuatIndex] = j;
+                        QuatIndex++;
+                    }
                 }
-            }
 
-            var Vector3Index = 0;
-            for (var j = ConstQuaternionCount + QuaternionCount; j < ConstQuaternionCount + QuaternionCount + (Vector3Count + ConstVector3Count); j++)
-            {
-                if (!constVectorSet.Contains(j))
+                var Vector3Index = 0;
+                for (var j = ConstQuaternionCount + QuaternionCount; j < ConstQuaternionCount + QuaternionCount + (Vector3Count + ConstVector3Count); j++)
                 {
-                    VectorMap[Vector3Index] = j;
-                    Vector3Index++;
+                    if (!constVectorSet.Contains(j))
+                    {
+                        VectorMap[Vector3Index] = j;
+                        Vector3Index++;
+                    }
                 }
-            }
-
+            
             var dofCount = QuaternionCount + Vector3Count + 0;
 
             // --- OPTIMIZATION 4: Pre-allocate Frames to prevent memory thrashing ---
@@ -309,6 +312,11 @@ namespace AssetBankPlugin.Ant
 
                 ret.Frames.Add(frame);
             }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error in {this.Name}: {ex.Message}");
+            }
 
             for (int r = 0; r < rotChannels.Count; r++) rotChannels[r] = rotChannels[r].Replace(".q", "");
             for (int r = 0; r < posChannels.Count; r++) posChannels[r] = posChannels[r].Replace(".t", "");
@@ -321,5 +329,6 @@ namespace AssetBankPlugin.Ant
             ret.Additive = Additive;
             return ret;
         }
+
     }
 }
