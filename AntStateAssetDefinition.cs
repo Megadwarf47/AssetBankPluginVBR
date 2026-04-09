@@ -84,7 +84,6 @@ namespace AssetBankPlugin
                     LoadAntStateFromBundle(bundle);
                 }
             }
-            var count = 0;
             // Read the main AntStateAsset.
             using (var r = new NativeReader(s))
             {
@@ -94,7 +93,6 @@ namespace AssetBankPlugin
                 dynamic skel = skelEbx.RootObject;
 
                 var skeleton = SkeletonAssetExport.ConvertToInternal(skel);
-                
                 foreach (var dataName in bank.DataNames)
                 {
                     var dat = AntRefTable.Get(dataName.Value);

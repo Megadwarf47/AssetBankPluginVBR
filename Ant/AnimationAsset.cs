@@ -47,60 +47,50 @@ namespace AssetBankPlugin.Ant
 
         public Dictionary<string, BoneChannelType> GetChannels(Guid channelToDofAsset)
         {
-            Debug.WriteLine($"[Anim Export] GetChannels called for animation '{Name}' (ID: {ID})");
+            // 1. Cache the profile version
+            ProfileVersion currentProfile = (ProfileVersion)ProfilesLibrary.DataVersion;
 
             LayoutHierarchyAsset hierarchy = null;
             ChannelToDofAsset dof = null;
 
-            switch ((ProfileVersion)ProfilesLibrary.DataVersion)
+            // 2. Iterate over .Values to avoid KeyValuePair struct allocation overhead
+            var refsValues = AntRefTable.Refs.Values;
+
+            switch (currentProfile)
             {
                 case ProfileVersion.PlantsVsZombiesGardenWarfare2:
-                    Debug.WriteLine("[Anim Export] Profile: PvZ GW2");
                     dof = (ChannelToDofAsset)AntRefTable.Get(ChannelToDofAsset);
                     StorageType = dof.StorageType;
-                    Debug.WriteLine($"[Anim Export] StorageType: {StorageType}, ChannelToDofAsset: {ChannelToDofAsset}");
 
-                    foreach (var c in AntRefTable.Refs)
+                    foreach (var asset in refsValues)
                     {
-                        if (c.Value is ClipControllerAsset cl)
+                        if (asset is ClipControllerAsset cl && cl.Anims.Contains(ID))
                         {
-                            if (cl.Anims.Contains(ID))
+                            var targetAsset = AntRefTable.Get(cl.Target);
+                            if (targetAsset is LayoutHierarchyAsset lh)
                             {
-                                var targetAsset = AntRefTable.Get(cl.Target);
-                                if (targetAsset is LayoutHierarchyAsset lh)
-                                {
-                                    FPS = cl.FPS;
-                                    hierarchy = lh;
-                                    Debug.WriteLine($"[Anim Export] Found ClipControllerAsset '{c.Key}' with FPS={FPS}, Target={cl.Target}");
-                                    break;
-                                }
-                                else
-                                {
-                                    Debug.WriteLine($"[Anim Export Warning] ClipController target is not LayoutHierarchyAsset (type: {targetAsset?.GetType()})");
-                                }
+                                FPS = cl.FPS;
+                                hierarchy = lh;
+                                break;
                             }
                         }
                     }
                     break;
 
                 case ProfileVersion.PlantsVsZombiesGardenWarfare:
-                    Debug.WriteLine("[Anim Export] Profile: PvZ GW1");
                     dof = (ChannelToDofAsset)AntRefTable.Get(channelToDofAsset);
                     StorageType = dof.StorageType;
-                    foreach (var c in AntRefTable.Refs)
+
+                    foreach (var asset in refsValues)
                     {
-                        if (c.Value is ClipControllerAsset cl)
+                        if (asset is ClipControllerAsset cl && cl.Anim == ID)
                         {
-                            if (cl.Anim == ID)
+                            var targetAsset = AntRefTable.Get(cl.Target);
+                            if (targetAsset is LayoutHierarchyAsset lh)
                             {
-                                var targetAsset = AntRefTable.Get(cl.Target);
-                                if (targetAsset is LayoutHierarchyAsset lh)
-                                {
-                                    FPS = cl.FPS;
-                                    hierarchy = lh;
-                                    Debug.WriteLine($"[Anim Export] Found ClipControllerAsset '{c.Key}' with FPS={FPS}");
-                                    break;
-                                }
+                                FPS = cl.FPS;
+                                hierarchy = lh;
+                                break;
                             }
                         }
                     }
@@ -108,234 +98,160 @@ namespace AssetBankPlugin.Ant
 
                 case ProfileVersion.Battlefield4:
                 default:
-                    Debug.WriteLine($"[Anim Export] Profile: {(ProfileVersion)ProfilesLibrary.DataVersion}");
                     dof = (ChannelToDofAsset)AntRefTable.Get(channelToDofAsset);
                     StorageType = dof.StorageType;
-                    foreach (var c in AntRefTable.Refs)
+
+                    // 3. Cache dictionary lookup OUTSIDE the loop
+                    Guid internalRefId = Guid.Empty;
+                    AntRefTable.InternalRefs.TryGetValue(ID, out internalRefId);
+
+                    foreach (var asset in refsValues)
                     {
-                        if (c.Value is ClipControllerData cl)
+                        if (asset is ClipControllerData cl && (cl.Anim == ID || cl.Anim == internalRefId))
                         {
-                            if (cl.Anim == ID || cl.Anim == AntRefTable.InternalRefs[ID])
+                            var targetAsset = AntRefTable.Get(cl.Target);
+                            if (targetAsset is LayoutHierarchyAsset lh)
                             {
-                                var targetAsset = AntRefTable.Get(cl.Target);
-                                if (targetAsset is LayoutHierarchyAsset lh)
-                                {
-                                    FPS = cl.FPS;
-                                    hierarchy = lh;
-                                    Debug.WriteLine($"[Anim Export] Found ClipControllerData with FPS={FPS}");
-                                    break;
-                                }
+                                FPS = cl.FPS;
+                                hierarchy = lh;
+                                break;
                             }
                         }
                     }
                     break;
             }
 
-            if (hierarchy == null)
-            {
-                Debug.WriteLine($"[Anim Export Error] No valid LayoutHierarchyAsset found for animation '{Name}' (ID: {ID})");
-                return new Dictionary<string, BoneChannelType>();
-            }
+            if (hierarchy == null) return new Dictionary<string, BoneChannelType>();
 
-            Debug.WriteLine($"[Anim Export] Hierarchy found: {hierarchy.Name} (ID: {hierarchy.ID})");
-
-            // Build channel name mapping from layout assets
-            var channelNames = new Dictionary<string, BoneChannelType>();
+            // 4. Calculate exact capacity for the Dictionary to prevent dynamic re-hashing
+            int initialCapacity = 0;
             for (int i = 0; i < hierarchy.LayoutAssets.Length; i++)
             {
                 AntAsset layoutAsset = AntRefTable.Get(hierarchy.LayoutAssets[i]);
+                if (layoutAsset is LayoutAsset la) initialCapacity += la.Slots.Count;
+                else if (layoutAsset is DeltaTrajLayoutAsset) initialCapacity += 8;
+            }
 
+            var channelNames = new Dictionary<string, BoneChannelType>(initialCapacity);
+            for (int i = 0; i < hierarchy.LayoutAssets.Length; i++)
+            {
+                AntAsset layoutAsset = AntRefTable.Get(hierarchy.LayoutAssets[i]);
                 if (layoutAsset is LayoutAsset la)
                 {
-                    Debug.WriteLine($"[Anim Export] Processing LayoutAsset '{la.Name}' with {la.Slots.Count} slots");
-                    for (int x = 0; x < la.Slots.Count; x++)
+                    // Cache the collection and count for faster loop execution
+                    var slots = la.Slots;
+                    int slotsCount = slots.Count;
+                    for (int x = 0; x < slotsCount; x++)
                     {
-                        channelNames[la.Slots[x].Name] = la.Slots[x].Type;
-                        Debug.WriteLine($"[Anim Export]   Slot: {la.Slots[x].Name} -> Type {la.Slots[x].Type}");
+                        channelNames[slots[x].Name] = slots[x].Type;
                     }
                 }
                 else if (layoutAsset is DeltaTrajLayoutAsset)
                 {
-                    Debug.WriteLine($"[Anim Export] DeltaTrajLayoutAsset found, adding 8 rotation channels");
-                    for (int x = 0; x < 8; x++)
-                    {
-                        channelNames["" + x] = BoneChannelType.Rotation;
-                    }
-                }
-                else
-                {
-                    Debug.WriteLine($"[Anim Export Warning] Unknown layout asset type: {layoutAsset?.GetType()}");
+                    for (int x = 0; x < 8; x++) channelNames[x.ToString()] = BoneChannelType.Rotation;
                 }
             }
 
+            // 5. Extract loop invariants into fast local variables
             uint[] data = dof.IndexData;
-            Debug.WriteLine($"[Anim Export] dof.IndexData length: {data.Length}");
-            var channelNamesList = channelNames.ToList();
-            var channels = new List<string>();
+            int dataLength = data.Length;
+            var channelNamesList = channelNames.ToArray();
+            int channelNamesLength = channelNamesList.Length;
 
-            // GW2 specific handling with fixes
-            if (ProfilesLibrary.IsLoaded(ProfileVersion.PlantsVsZombiesGardenWarfare2))
+            // 6. Use primitive Arrays instead of List<T> wherever the size is fixed
+            string[] channelsArray = null;
+            List<string> channelsList = null;
+            bool useArray = true;
+
+            if (currentProfile == ProfileVersion.PlantsVsZombiesGardenWarfare2)
             {
-                Debug.WriteLine("[Anim Export] Processing GW2 DOF remapping with fixes");
-
-                // Retrieve the rig using the hardcoded GUID
                 var rig = AntRefTable.Get(HardcodedRigGuid) as RigAsset;
-                if (rig == null)
-                {
-                    Debug.WriteLine($"[Anim Export Error] Hardcoded rig GUID {HardcodedRigGuid} not found or not a RigAsset");
-                    return new Dictionary<string, BoneChannelType>();
-                }
+                if (rig == null) return new Dictionary<string, BoneChannelType>();
 
-                Debug.WriteLine($"[Anim Export] Using rig '{rig.Name}' (ID: {rig.ID}) with {rig.DofIds?.Length ?? 0} DOF IDs");
+                channelsArray = new string[dataLength];
+                ushort[] dofIds = rig.DofIds;
+                int dofIdsLength = dofIds?.Length ?? 0;
 
-                // Build a fast lookup dictionary for DOF ID to channel index
-                var dofIdToIndex = new Dictionary<ushort, int>();
-                for (int i = 0; i < rig.DofIds.Length; i++)
-                {
-                    dofIdToIndex[rig.DofIds[i]] = i;
-                }
+                var dofIdToIndex = new Dictionary<ushort, int>(dofIdsLength);
+                for (int i = 0; i < dofIdsLength; i++) dofIdToIndex[dofIds[i]] = i;
 
-                uint[] actualData = new uint[data.Length];
-                for (int i = 0; i < data.Length; i++)
+                int validChannelCount = 0;
+                for (int i = 0; i < dataLength; i++)
                 {
-                    channels.Add("");
-                    ushort rawDofId = (ushort)data[i];  // FIX: cast to ushort for correct lookup
-                    if (dofIdToIndex.TryGetValue(rawDofId, out int idx))
+                    // Streamlined type casting and lookups
+                    if (dofIdToIndex.TryGetValue((ushort)data[i], out int idx) && idx >= 0 && idx < channelNamesLength)
                     {
-                        actualData[i] = (uint)idx;
-                        Debug.WriteLine($"[Anim Export Debug] data[{i}] = {data[i]} (0x{data[i]:X}) -> remapped to index {idx}");
-                    }
-                    else
-                    {
-                        actualData[i] = 0xFFFFFFFF;
-                        Debug.WriteLine($"[Anim Export Warning] DOF ID {rawDofId} not found in rig's DofIds array");
+                        channelsArray[i] = channelNamesList[idx].Key;
+                        validChannelCount++;
                     }
                 }
 
-                // FIX: use actualData instead of raw data for channel mapping
-                for (int i = 0; i < data.Length; i++)
-                {
-                    int channelId = (int)actualData[i];
-                    if (channelId >= 0 && channelId < channelNamesList.Count)
-                    {
-                        channels[i] = channelNamesList[channelId].Key;
-                        Debug.WriteLine($"[Anim Export Debug] Channel {i}: mapped to '{channels[i]}' (index {channelId})");
-                    }
-                    else
-                    {
-                        Debug.WriteLine($"[Anim Export Warning] GW2: Skipped out-of-bounds bone channel ID {channelId} at position {i}");
-                    }
-                }
-
-                // Filter: only keep animation if it actually produced any channels using this rig
-                int validChannelCount = channels.Count(c => !string.IsNullOrEmpty(c));
-                Debug.WriteLine($"[Anim Export] GW2: Total channels after mapping = {channels.Count}, valid non-empty = {validChannelCount}");
-                if (validChannelCount == 0)
-                {
-                    Debug.WriteLine($"[Anim Export] Animation '{Name}' does not match hardcoded rig {HardcodedRigGuid} - skipping extraction");
-                    return new Dictionary<string, BoneChannelType>();
-                }
+                if (validChannelCount == 0) return new Dictionary<string, BoneChannelType>();
             }
-            else if (ProfilesLibrary.IsLoaded(ProfileVersion.PlantsVsZombiesGardenWarfare))
+            else if (currentProfile == ProfileVersion.PlantsVsZombiesGardenWarfare || StorageType == StorageType.Overwrite)
             {
-                Debug.WriteLine("[Anim Export] Processing GW1 DOF mapping (no changes applied)");
-                for (int i = 0; i < data.Length; i++) channels.Add("");
-
-                for (int i = 0; i < data.Length; i++)
+                channelsArray = new string[dataLength];
+                for (int i = 0; i < dataLength; i++)
                 {
                     int channelId = (int)data[i];
-                    if (channelId >= 0 && channelId < channelNamesList.Count)
+                    if (channelId >= 0 && channelId < channelNamesLength)
                     {
-                        channels[i] = channelNamesList[channelId].Key;
-                        Debug.WriteLine($"[Anim Export Debug] GW1: Channel {i} -> '{channels[i]}'");
-                    }
-                    else
-                    {
-                        Debug.WriteLine($"[Anim Export Warning] GW1: Skipped out-of-bounds bone channel {channelId}");
+                        channelsArray[i] = channelNamesList[channelId].Key;
                     }
                 }
             }
-            else
+            else if (StorageType == StorageType.Append)
             {
-                Debug.WriteLine($"[Anim Export] Processing non-PvZ profile with StorageType={StorageType}");
-                switch (StorageType)
+                useArray = false;
+                channelsList = new List<string>(dataLength);
+                var offsets = new Dictionary<int, int>(dataLength / 2);
+                int offset = 0;
+
+                for (int i = 0; i < dataLength; i += 2)
                 {
-                    case StorageType.Overwrite:
-                        {
-                            for (int i = 0; i < data.Length; i++) channels.Add("");
+                    int appendTo = (int)data[i];
+                    int channelId = (int)data[i + 1];
 
-                            for (int i = 0; i < data.Length; i++)
-                            {
-                                int channelId = (int)data[i];
-                                if (channelId >= 0 && channelId < channelNamesList.Count)
-                                {
-                                    channels[i] = channelNamesList[channelId].Key;
-                                    Debug.WriteLine($"[Anim Export Debug] Overwrite: Channel {i} -> '{channels[i]}'");
-                                }
-                                else
-                                {
-                                    Debug.WriteLine($"[Anim Export Warning] Overwrite: Skipped out-of-bounds bone channel {channelId}");
-                                }
-                            }
-                        }
-                        break;
-                    case StorageType.Append:
-                        {
-                            var offsets = new Dictionary<int, int>();
-                            int offset = 0;
-                            for (int i = 0; i < data.Length; i += 2)
-                            {
-                                int appendTo = (int)data[i];
-                                int channelId = (int)data[i + 1];
+                    offsets[appendTo] = offset++;
+                    int targetIndex = offsets[appendTo];
 
-                                offsets[appendTo] = offset;
-                                offset++;
+                    string channelKey = string.Empty;
+                    if (channelId >= 0 && channelId < channelNamesLength)
+                    {
+                        channelKey = channelNamesList[channelId].Key;
+                    }
 
-                                int targetIndex = offsets[appendTo];
-                                string channelKey = "";
-                                if (channelId >= 0 && channelId < channelNamesList.Count)
-                                {
-                                    channelKey = channelNamesList[channelId].Key;
-                                    Debug.WriteLine($"[Anim Export Debug] Append: channelId {channelId} -> '{channelKey}', targetIndex {targetIndex}");
-                                }
-                                else
-                                {
-                                    Debug.WriteLine($"[Anim Export Warning] Append: Skipped out-of-bounds bone channel {channelId}");
-                                }
-
-                                if (targetIndex <= channels.Count)
-                                {
-                                    channels.Insert(targetIndex, channelKey);
-                                }
-                                else
-                                {
-                                    channels.Add(channelKey);
-                                }
-                            }
-                        }
-                        break;
+                    if (targetIndex <= channelsList.Count) channelsList.Insert(targetIndex, channelKey);
+                    else channelsList.Add(channelKey);
                 }
             }
 
-            // Build final output dictionary
             var output = new Dictionary<string, BoneChannelType>();
-            for (int i = 0; i < channels.Count; i++)
-            {
-                string ch = channels[i];
-                if (string.IsNullOrEmpty(ch)) continue;
 
-                if (channelNames.TryGetValue(ch, out BoneChannelType bct))
+            if (useArray) // Used by GW1, GW2, and Overwrite
+            {
+                for (int i = 0; i < dataLength; i++)
                 {
-                    output[ch] = bct;
-                    Debug.WriteLine($"[Anim Export] Final mapping: {ch} -> {bct}");
+                    string ch = channelsArray[i];
+                    if (!string.IsNullOrEmpty(ch) && channelNames.TryGetValue(ch, out BoneChannelType bct))
+                    {
+                        output[ch] = bct;
+                    }
                 }
-                else
+            }
+            else // Used ONLY by Append
+            {
+                int listCount = channelsList.Count;
+                for (int i = 0; i < listCount; i++)
                 {
-                    Debug.WriteLine($"[Anim Export Warning] Missing mapping: Channel '{ch}' was not found in LayoutHierarchy.");
+                    string ch = channelsList[i];
+                    if (!string.IsNullOrEmpty(ch) && channelNames.TryGetValue(ch, out BoneChannelType bct))
+                    {
+                        output[ch] = bct;
+                    }
                 }
             }
 
-            Debug.WriteLine($"[Anim Export] GetChannels returning {output.Count} valid bone channels for animation '{Name}'");
             return output;
         }
 
