@@ -165,7 +165,7 @@ namespace AssetBankPlugin.Ant
 
             if (currentProfile == ProfileVersion.PlantsVsZombiesGardenWarfare2)
             {
-                var rig = AntRefTable.Get(HardcodedRigGuid) as RigAsset;
+                var rig = AntRefTable.Get(dof.rigId) as RigAsset;
                 if (rig == null) return new Dictionary<string, BoneChannelType>();
 
                 channelsArray = new string[dataLength];
