@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using System.Windows.Input;
 
 namespace AssetBankPlugin.Ant
 {
@@ -11,6 +12,7 @@ namespace AssetBankPlugin.Ant
     {
         public override string Name { get; set; }
         public override Guid ID { get; set; }
+        public string Key { get; set; }
         public Guid FeatureCollection { get; set; }
         public  Guid Skeleton { get; set; }
         public Guid[] DofSetLists { get; set; }
@@ -18,11 +20,21 @@ namespace AssetBankPlugin.Ant
         public Object DefaultVector3Values { get; set; }
         public Object DefaultVector4Values { get; set; }
         public UInt16[] DofIds { get; set; }
+        public string[] HashDofIds { get; set; }
 
         public override void SetData(Dictionary<string, object> data)
         {
             Name = Convert.ToString(data["__name"]);
-            ID = (Guid)data["__guid"];
+            if (ProfilesLibrary.IsLoaded(ProfileVersion.PlantsVsZombiesBattleforNeighborville))
+            {
+                Key = (string)data["__key"];
+                HashDofIds = (string[])data["DofIds"];
+            }
+            else
+            {
+                ID = (Guid)data["__guid"];
+            }
+
             if (ProfilesLibrary.IsLoaded(ProfileVersion.PlantsVsZombiesGardenWarfare2))
             {
                 

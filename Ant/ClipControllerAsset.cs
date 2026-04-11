@@ -12,49 +12,95 @@ namespace AssetBankPlugin.Ant
         public override string Name { get; set; }
         public override Guid ID { get; set; }
 
-
-        public Guid[] Anims { get; set; }
-
+        // Schema Properties
+        public string Key { get; set; }
+        public Guid TagCollectionSetAsset { get; set; }
+        public string TagCollectionSetAssetHash { get; set; }
         public Guid Anim { get; set; }
-        public Guid Target { get; set; }
-        public float NumTicks { get; set; }
+        public string HashAnim { get; set; }
+        public string DofCodecAnim { get; set; }
         public float TickOffset { get; set; }
         public float FPS { get; set; }
         public float TimeScale { get; set; }
         public float Distance { get; set; }
-        public int TrajectoryAnimIndex { get; set; }
         public int Modes { get; set; }
+
+        // Compatibility Properties
+        public Guid[] Anims { get; set; }
+        public Guid Target { get; set; }
+        public float NumTicks { get; set; }
+        public int TrajectoryAnimIndex { get; set; }
         public Guid TagCollectionSet { get; set; }
-        
-        
+
         public override void SetData(Dictionary<string, object> data)
         {
-            Name = Convert.ToString(data["__name"]);
-            ID = (Guid)data["__guid"];
-            if (ProfilesLibrary.IsLoaded(ProfileVersion.PlantsVsZombiesGardenWarfare))
+            // Internal Frosty Keys
+            Name = data.ContainsKey("__name") ? Convert.ToString(data["__name"]) : "";
+            ID = GetGuid(data, "__guid");
+            if (ProfilesLibrary.IsLoaded(ProfileVersion.PlantsVsZombiesBattleforNeighborville))
             {
-                Anim = (Guid)data["Anim"];
-                Target = (Guid)data["Target"];
-                NumTicks = Convert.ToSingle(data["NumTicks"]);
-                FPS = Convert.ToSingle(data["FPS"]);
-                TimeScale = Convert.ToSingle(data["FPSScale"]);
-                Distance = Convert.ToSingle(data["Distance"]);
-                TrajectoryAnimIndex = Convert.ToInt32(data["DeltaTrajectory"]);
-                TagCollectionSet = (Guid)data["TagCollectionSet"];
+                // Exact mapping from the BFN generated schema
+                Key = (string)(data["__key"]);
+                TagCollectionSetAssetHash = (string)(data["TagCollectionSetAsset"]); 
+                HashAnim = (string)(data["Anim"]);
+                DofCodecAnim = (string)(data["DofCodecAnim"]); 
+                TickOffset = GetFloat(data, "TickOffset");
+                FPS = GetFloat(data, "FPS");
+                TimeScale = GetFloat(data, "TimeScale");
+                Distance = GetFloat(data, "Distance");
+                Modes = GetInt(data, "Modes"); // schema says uint8 GetInt handles it
+
+                // Compatibility mapping
+                TagCollectionSet = TagCollectionSetAsset;
+            }
+            else if (ProfilesLibrary.IsLoaded(ProfileVersion.PlantsVsZombiesGardenWarfare))
+            {
+                Anim = GetGuid(data, "Anim");
+                Target = GetGuid(data, "Target");
+                NumTicks = GetFloat(data, "NumTicks");
+                FPS = GetFloat(data, "FPS");
+                TimeScale = GetFloat(data, "FPSScale");
+                Distance = GetFloat(data, "Distance");
+                TrajectoryAnimIndex = GetInt(data, "DeltaTrajectory");
+                TagCollectionSet = GetGuid(data, "TagCollectionSet");
             }
             else
             {
-                Anims = (Guid[])data["Anims"];
-                Target = (Guid)data["Target"];
-                NumTicks = Convert.ToSingle(data["NumTicks"]);
-                TickOffset = Convert.ToSingle(data["TickOffset"]);
-                FPS = Convert.ToSingle(data["FPS"]);
-                TimeScale = Convert.ToSingle(data["TimeScale"]);
-                Distance = Convert.ToSingle(data["Distance"]);
-                TrajectoryAnimIndex = Convert.ToInt32(data["TrajectoryAnimIndex"]);
-                Modes = Convert.ToInt32(data["Modes"]);
-                TagCollectionSet = (Guid)data["TagCollectionSet"];
+                // Default / GW2
+                Anims = data.ContainsKey("Anims") ? (Guid[])data["Anims"] : null;
+                Target = GetGuid(data, "Target");
+                NumTicks = GetFloat(data, "NumTicks");
+                TickOffset = GetFloat(data, "TickOffset");
+                FPS = GetFloat(data, "FPS");
+                TimeScale = GetFloat(data, "TimeScale");
+                Distance = GetFloat(data, "Distance");
+                TrajectoryAnimIndex = GetInt(data, "TrajectoryAnimIndex");
+                Modes = GetInt(data, "Modes");
+                TagCollectionSet = GetGuid(data, "TagCollectionSet");
             }
+        }
+
+        private float GetFloat(Dictionary<string, object> data, string key)
+        {
+            if (!data.ContainsKey(key)) return 0.0f;
+            return Convert.ToSingle(data[key]);
+        }
+
+        private int GetInt(Dictionary<string, object> data, string key)
+        {
+            if (!data.ContainsKey(key)) return 0;
+            return Convert.ToInt32(data[key]);
+        }
+
+        private Guid GetGuid(Dictionary<string, object> data, string key)
+        {
+            if (!data.ContainsKey(key)) return Guid.Empty;
+            object val = data[key];
+            if (val is Guid guid) return guid;
+            if (val == null) return Guid.Empty;
+
+            try { return new Guid(val.ToString()); }
+            catch { return Guid.Empty; }
         }
     }
 }
