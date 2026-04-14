@@ -341,8 +341,8 @@ namespace AssetBankPlugin.Ant
             }
 
             // Apply curves using the normalized scale logic
-            ApplyCurveSet(0, VectorOffsetScale, QuaternionCount * 4);
-            ApplyCurveSet(VectorOffsetSize, FloatOffsetScale, QuaternionCount * 4 + Vector3Count * 4);
+            //ApplyCurveSet(0, VectorOffsetScale, QuaternionCount * 4);
+            //ApplyCurveSet(VectorOffsetSize, FloatOffsetScale, QuaternionCount * 4 + Vector3Count * 4);
 
             // --- Pack into Vector4 list ---
             List<Vector4> resultDof = new List<Vector4>(NumKeys * DofCount);

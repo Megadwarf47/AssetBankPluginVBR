@@ -60,12 +60,12 @@ namespace AssetBankPlugin.Ant
 
                 for (int i = 0; i < QuatCount; i++)
                 {
-                    rotations.Add(new Quaternion(Data[dataIndex++], Data[dataIndex++], Data[dataIndex++], Data[dataIndex++]));
-                }
-                for (int i = 0; i < Vec3Count; i++)
-                {
-                    positions.Add(new Vector3(Data[dataIndex++], Data[dataIndex++], Data[dataIndex++]));
-                }
+                        rotations.Add(new Quaternion(Data[dataIndex++], Data[dataIndex++], Data[dataIndex++], Data[dataIndex++]));
+                    }
+                    for (int i = 0; i < Vec3Count; i++)
+                    {
+                        positions.Add(new Vector3(Data[dataIndex++], Data[dataIndex++], Data[dataIndex++]));
+                    }
 
                 frame.FrameIndex = KeyTimes[frameIndex];
                 frame.Positions = positions;

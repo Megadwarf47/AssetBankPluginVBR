@@ -20,7 +20,8 @@ namespace AssetBankPlugin.Ant
         public Object DefaultVector3Values { get; set; }
         public Object DefaultVector4Values { get; set; }
         public UInt16[] DofIds { get; set; }
-        public string[] HashDofIds { get; set; }
+        public object[] HashDofIds { get; set; }
+        public UInt32[] IntDofIds { get; set; }
 
         public override void SetData(Dictionary<string, object> data)
         {
@@ -28,7 +29,8 @@ namespace AssetBankPlugin.Ant
             if (ProfilesLibrary.IsLoaded(ProfileVersion.PlantsVsZombiesBattleforNeighborville))
             {
                 Key = (string)data["__key"];
-                HashDofIds = (string[])data["DofIds"];
+                HashDofIds = (object[])data["DofIds"];
+                IntDofIds = HashDofIds.Select(o => Convert.ToUInt32(o)).ToArray();
             }
             else
             {
