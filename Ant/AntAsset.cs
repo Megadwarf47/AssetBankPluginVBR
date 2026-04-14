@@ -1,4 +1,4 @@
-﻿using AssetBankPlugin.Extensions;
+using AssetBankPlugin.Extensions;
 using AssetBankPlugin.GenericData;
 using FrostySdk.IO;
 using System;
@@ -44,12 +44,30 @@ namespace AssetBankPlugin.Ant
 
             Type assetType = Type.GetType("AssetBankPlugin.Ant." + classes[type].Name);
 
-            // If assetType is not null, that means we have a supported AntAsset. In that case, parse it and add it to the AntRefTable.
+            // If assetType is not null, that means we have a supported AntAsset parse it and add it to the AntRefTable
             if (assetType != null)
             {
-                AntAsset asset = (AntAsset)Activator.CreateInstance(assetType);
+                AntAsset asset = null;
+                try
+                {
+                    asset = (AntAsset)Activator.CreateInstance(assetType);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[FATAL] Failed to create instance of {assetType.Name}. Exception: {ex}");
+                    return null;
+                }
+
                 asset.Bank = bank;
-                asset.SetData(values);
+                try
+                {
+                    asset.SetData(values);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[FATAL] SetData failed for {assetType.Name}. Exception: {ex}");
+                    return null;
+                }
 
                 AntRefTable.Add(asset);
                 return asset;
@@ -60,7 +78,7 @@ namespace AssetBankPlugin.Ant
             }
         }
 
-        // New Deserialize using SectionData2 (with diagnostic dump)
+        // New Deserialize using SectionData2
         public static AntAsset Deserialize(NativeReader r, SectionData2 section, Dictionary<uint, GenericClass> classes, Bank bank, long objectHeaderOffset)
         {
             var values = section.ReadObjectAt(objectHeaderOffset, classes);
@@ -77,18 +95,34 @@ namespace AssetBankPlugin.Ant
             DumpObject(values, "  ");
 
             Type assetType = Type.GetType("AssetBankPlugin.Ant." + layout.Name);
-            if (assetType == null) return null;
+            if (assetType == null)
+            {
+                Console.WriteLine($"[WARN] No C# class found for {layout.Name}. Skipping.");
+                return null;
+            }
 
-            AntAsset asset = (AntAsset)Activator.CreateInstance(assetType);
+            AntAsset asset = null;
+            try
+            {
+                asset = (AntAsset)Activator.CreateInstance(assetType);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[FATAL] Could not create instance of {assetType.Name}. Exception: {ex}");
+                return null;
+            }
+
             asset.Bank = bank;
 
             try
             {
                 asset.SetData(values);
             }
-            catch (KeyNotFoundException)
+            catch (Exception ex)
             {
-                Console.WriteLine($"[FATAL] Key missing in C# Class for {layout.Name}");
+                Console.WriteLine($"[FATAL] SetData failed for {assetType.Name}. Exception: {ex}");
+                // return null to continue processing other assets.
+                return null;
             }
 
             AntRefTable.Add(asset);
@@ -107,11 +141,13 @@ namespace AssetBankPlugin.Ant
                 else if (kvp.Value is object[] arr)
                 {
                     Console.WriteLine($"{indent}Field '{kvp.Key}': [Array, Count={arr.Length}]");
-                    for (int i = 0; i < Math.Min(arr.Length, 5); i++) // Limit dump to 5 items
+                    for (int i = 0; i < Math.Min(arr.Length, 16); i++)
                     {
                         if (arr[i] is Dictionary<string, object> obj) DumpObject(obj, indent + "    ");
                         else Console.WriteLine($"{indent}  [{i}] = {arr[i]}");
                     }
+                    if (arr.Length > 16)
+                        Console.WriteLine($"{indent}  ... and {arr.Length - 16} more items");
                 }
                 else if (kvp.Value is float[] vec)
                 {
