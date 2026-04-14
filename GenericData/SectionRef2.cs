@@ -1,10 +1,11 @@
-﻿using AssetBankPlugin.Extensions;
+using AssetBankPlugin.Extensions;
 using AssetBankPlugin.Enums;
 using FrostySdk.IO;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
+using System.Linq;
 
 namespace AssetBankPlugin.GenericData
 {
@@ -43,6 +44,7 @@ namespace AssetBankPlugin.GenericData
                 posToRawLayout[layoutOffsets[i]] = ReadRawLayout(r);
             }
 
+            // First pass create GenericClass for all layouts
             foreach (var rawLayout in posToRawLayout.Values)
             {
                 var genClass = new GenericClass
@@ -52,7 +54,7 @@ namespace AssetBankPlugin.GenericData
                     Alignment = (int)rawLayout.Alignment
                 };
 
-                Console.WriteLine($"[REF2] Layout: {genClass.Name} (0x{rawLayout.Hash:X8}) size={genClass.Size}");
+                Console.WriteLine($"[REF2] Layout: {genClass.Name} (0x{rawLayout.Hash:X8}) size={genClass.Size} align={genClass.Alignment}");
 
                 foreach (var entry in rawLayout.Entries)
                 {
@@ -85,7 +87,7 @@ namespace AssetBankPlugin.GenericData
                     }
 
                     genClass.Elements.Add(field);
-                    Console.WriteLine($"  Field: {field.Name} type={field.Type} off=0x{field.Offset:X}");
+                    Console.WriteLine($"  Field: {field.Name} type={field.Type} off=0x{field.Offset:X} size={field.Size} align={field.Alignment} isList={field.IsList} inlineCount={field.InlineCount}");
                 }
 
                 if (rawLayout.Reordered)
@@ -95,7 +97,143 @@ namespace AssetBankPlugin.GenericData
                 Classes[rawLayout.Hash] = genClass;
             }
 
+            // Second pass: resolve element types for array fields
+            foreach (var cls in Classes.Values.ToList())
+            {
+                foreach (var field in cls.Elements)
+                {
+                    if (field.IsList)
+                    {
+                        if (!Classes.TryGetValue(field.TypeHash, out var arrayLayout))
+                        {
+                            if (PrimitiveTypeMap.IsPrimitive(field.TypeHash))
+                            {
+                                field.ElementTypeHash = field.TypeHash;
+                                field.ElementSize = (uint)PrimitiveTypeMap.GetTypeSize(field.TypeHash);
+                                field.ElementAlignment = Math.Min(field.ElementSize, 8u);
+                                field.Type = PrimitiveTypeMap.GetTypeName(field.TypeHash) + "[]";
+                                Console.WriteLine($"[REF2] Array field '{field.Name}' using primitive fallback: element size={field.ElementSize}");
+                            }
+                            else
+                            {
+                                Console.WriteLine($"[REF2] ERROR: Could not find array layout for hash 0x{field.TypeHash:X8} (field '{field.Name}')");
+                                continue;
+                            }
+                        }
+                        else
+                        {
+                            var elemField = arrayLayout.Elements.FirstOrDefault(e => e.TypeHash != 0);
+                            if (elemField != null)
+                            {
+                                field.ElementTypeHash = elemField.TypeHash;
+                                field.ElementSize = elemField.Size;
+                                field.ElementAlignment = elemField.Alignment;
+                                if (PrimitiveTypeMap.IsPrimitive(elemField.TypeHash))
+                                    field.Type = PrimitiveTypeMap.GetTypeName(elemField.TypeHash) + "[]";
+                                else if (Classes.TryGetValue(elemField.TypeHash, out var elemClass))
+                                    field.Type = elemClass.Name + "[]";
+                                else
+                                    field.Type = $"Class_0x{elemField.TypeHash:X8}[]";
+                            }
+                            else
+                            {
+                                Console.WriteLine($"[REF2] WARNING: Array layout for '{field.Name}' has no valid element entry");
+                                if (PrimitiveTypeMap.IsPrimitive(field.TypeHash))
+                                {
+                                    field.ElementTypeHash = field.TypeHash;
+                                    field.ElementSize = (uint)PrimitiveTypeMap.GetTypeSize(field.TypeHash);
+                                    field.ElementAlignment = Math.Min(field.ElementSize, 8u);
+                                    field.Type = PrimitiveTypeMap.GetTypeName(field.TypeHash) + "[]";
+                                }
+                            }
+                        }
+
+                        if (field.ElementSize > 0)
+                            Console.WriteLine($"[REF2] Array field '{field.Name}' element type={field.Type} element size={field.ElementSize} element align={field.ElementAlignment}");
+                    }
+                    else if (field.InlineCount > 1)
+                    {
+                        field.ElementTypeHash = field.TypeHash;
+                        field.ElementSize = field.Size;
+                        field.ElementAlignment = field.Alignment;
+                        if (PrimitiveTypeMap.IsPrimitive(field.TypeHash))
+                            field.Type = $"{PrimitiveTypeMap.GetTypeName(field.TypeHash)}[{field.InlineCount}]";
+                        else if (Classes.TryGetValue(field.TypeHash, out var elemClass))
+                            field.Type = $"{elemClass.Name}[{field.InlineCount}]";
+                        else
+                            field.Type = $"Class_0x{field.TypeHash:X8}[{field.InlineCount}]";
+                    }
+                }
+            }
+
+            // Third pass resolve all zero sizes/alignments from class layouts
+            ResolveClassSizes();
+
             r.BaseStream.Position = sectionStart + DataSize;
+        }
+
+        private void ResolveClassSizes()
+        {
+            bool changed;
+            do
+            {
+                changed = false;
+                foreach (var cls in Classes.Values)
+                {
+                    foreach (var field in cls.Elements)
+                    {
+                        // Correct field.Size for nonprimitive inline fields
+                        if (field.Size == 0 && field.TypeHash != 0 && !PrimitiveTypeMap.IsPrimitive(field.TypeHash))
+                        {
+                            if (Classes.TryGetValue(field.TypeHash, out var fieldClass))
+                            {
+                                field.Size = (uint)fieldClass.Size;
+                                field.Alignment = (uint)fieldClass.Alignment;
+                                Console.WriteLine($"[REF2] Corrected field '{field.Name}' size to {field.Size} from class layout.");
+                                changed = true;
+                            }
+                        }
+
+                        // Correct element size for list fields
+                        if (field.IsList)
+                        {
+                            if (field.ElementSize == 0 && field.ElementTypeHash != 0 && !PrimitiveTypeMap.IsPrimitive(field.ElementTypeHash))
+                            {
+                                if (Classes.TryGetValue(field.ElementTypeHash, out var elemClass))
+                                {
+                                    field.ElementSize = (uint)elemClass.Size;
+                                    field.ElementAlignment = (uint)elemClass.Alignment;
+                                    Console.WriteLine($"[REF2] Corrected list element size for '{field.Name}' to {field.ElementSize}");
+                                    changed = true;
+                                }
+                            }
+                            // Also ensur ethe inline field size for the list (which is the heap header) is correct (should be 16)
+                            // The raw entry already sets Size = 16 but if its 0 we set it
+                            if (field.Size == 0)
+                            {
+                                field.Size = 16; // capacity(4) + count(4) + pointer(8)
+                                field.Alignment = 8;
+                                Console.WriteLine($"[REF2] Corrected list field '{field.Name}' inline size to 16.");
+                                changed = true;
+                            }
+                        }
+                        // For inline fixed arrays
+                        else if (field.InlineCount > 1)
+                        {
+                            if (field.ElementSize == 0 && field.ElementTypeHash != 0 && !PrimitiveTypeMap.IsPrimitive(field.ElementTypeHash))
+                            {
+                                if (Classes.TryGetValue(field.ElementTypeHash, out var elemClass))
+                                {
+                                    field.ElementSize = (uint)elemClass.Size;
+                                    field.ElementAlignment = (uint)elemClass.Alignment;
+                                    Console.WriteLine($"[REF2] Corrected inline array element size for '{field.Name}' to {field.ElementSize}");
+                                    changed = true;
+                                }
+                            }
+                        }
+                    }
+                }
+            } while (changed);
         }
 
         private RawLayout ReadRawLayout(NativeReader r)
