@@ -1,4 +1,4 @@
-﻿using AssetBankPlugin.Extensions;
+using AssetBankPlugin.Extensions;
 using FrostySdk.IO;
 using System;
 using System.Collections.Generic;
@@ -65,7 +65,7 @@ namespace AssetBankPlugin.GenericData
                 if (field.IsList || field.Type == "String")
                     result[field.Name] = ReadHeapItem(field, classes);
                 else if (field.InlineCount > 1)
-                    result[field.Name] = ReadArray(bufOff + field.Offset, field, (uint)field.InlineCount, classes);
+                    result[field.Name] = ReadArray(bufOff + field.Offset, field, (int)field.InlineCount, classes);
                 else
                     result[field.Name] = ReadPrimitive(bufOff + field.Offset, field, classes);
             }
@@ -75,17 +75,23 @@ namespace AssetBankPlugin.GenericData
         private object ReadHeapItem(GenericField field, Dictionary<uint, GenericClass> classes)
         {
             uint capacity = _patchedReader.ReadUInt(Endianness);
-            uint count = _patchedReader.ReadUInt(Endianness);
+            int count = _patchedReader.ReadInt(Endianness);
             long rawVal = _patchedReader.ReadLong(Endianness);
 
-            if (rawVal == 0 || rawVal == -1 || count == 0)
+            if (rawVal == 0 || rawVal == -1 || count <= 0)
                 return (field.Type == "String") ? (object)"" : (object)new object[0];
 
-            // Pointer logic: Offset is from the Pointer's Location
             long pointerPosInFile = DataOffset + (_patchedReader.BaseStream.Position - 8);
             long absoluteTarget = pointerPosInFile + ((rawVal << 4) >> 4);
-
             long oldPos = _patchedReader.BaseStream.Position;
+
+            // Safety check against corrupted pointers
+            if (absoluteTarget < DataOffset || absoluteTarget > DataOffset + DataSize)
+            {
+                _patchedReader.BaseStream.Position = oldPos;
+                return (field.Type == "String") ? (object)"" : (object)new object[0];
+            }
+
             _patchedReader.BaseStream.Position = absoluteTarget - DataOffset;
 
             object resultVal;
@@ -95,7 +101,27 @@ namespace AssetBankPlugin.GenericData
             }
             else
             {
-                resultVal = ReadArray(_patchedReader.BaseStream.Position, field, count, classes);
+                if (field.ElementTypeHash != 0 && field.ElementSize > 0)
+                {
+                    var elemField = new GenericField
+                    {
+                        TypeHash = field.ElementTypeHash,
+                        Size = field.ElementSize,
+                        Alignment = field.ElementAlignment
+                    };
+                    if (PrimitiveTypeMap.IsPrimitive(elemField.TypeHash))
+                        elemField.Type = PrimitiveTypeMap.GetTypeName(elemField.TypeHash);
+                    else if (classes.TryGetValue(elemField.TypeHash, out var elemClass))
+                        elemField.Type = elemClass.Name;
+                    else
+                        elemField.Type = $"Class_0x{elemField.TypeHash:X8}";
+
+                    resultVal = ReadArray(_patchedReader.BaseStream.Position, elemField, count, classes);
+                }
+                else
+                {
+                    resultVal = ReadArray(_patchedReader.BaseStream.Position, field, count, classes);
+                }
             }
 
             _patchedReader.BaseStream.Position = oldPos;
@@ -136,16 +162,126 @@ namespace AssetBankPlugin.GenericData
                     long pPos = DataOffset + (_patchedReader.BaseStream.Position - 8);
                     return ReadObjectAt(pPos + ((pVal << 4) >> 4), classes);
                 default:
-                    return ReadValues(bufOff, field.TypeHash, classes);
+                    if (field.Size == 8 && field.Alignment == 8 && !PrimitiveTypeMap.IsPrimitive(field.TypeHash))
+                    {
+                        long refVal = _patchedReader.ReadLong(Endianness);
+                        if (refVal == 0 || refVal == -1) return null;
+                        long refPos = DataOffset + (_patchedReader.BaseStream.Position - 8);
+                        long target = refPos + ((refVal << 4) >> 4);
+                        if (field.Type == "String" || (field.ElementTypeHash != 0 && field.ElementTypeHash == 0x11))
+                        {
+                            long old = _patchedReader.BaseStream.Position;
+                            _patchedReader.BaseStream.Position = target - DataOffset;
+                            uint cap = _patchedReader.ReadUInt(Endianness);
+                            uint cnt = _patchedReader.ReadUInt(Endianness);
+                            long ptr = _patchedReader.ReadLong(Endianness);
+                            if (ptr != 0 && ptr != -1 && cnt > 0)
+                            {
+                                long strTarget = target + ((ptr << 4) >> 4);
+                                _patchedReader.BaseStream.Position = strTarget - DataOffset;
+                                string s = _patchedReader.ReadNullTerminatedString();
+                                _patchedReader.BaseStream.Position = old;
+                                return s;
+                            }
+                            _patchedReader.BaseStream.Position = old;
+                            return "";
+                        }
+                        else
+                        {
+                            return ReadObjectAt(target, classes);
+                        }
+                    }
+                    else
+                    {
+                        return ReadValues(bufOff, field.TypeHash, classes);
+                    }
             }
         }
 
-        private object ReadArray(long bufOff, GenericField field, uint count, Dictionary<uint, GenericClass> classes)
+        private object ReadArray(long bufOff, GenericField field, int count, Dictionary<uint, GenericClass> classes)
         {
-            uint step = (field.Size + field.Alignment - 1) & ~(field.Alignment - 1);
-            if (step == 0) step = field.Size;
+            if (count <= 0) return new object[0];
+
+            // Failsafe: Prevent OOM crashes if a corrupt pointer is hit. 
+            if (count > 5000000)
+            {
+                Console.WriteLine($"[ERROR] ReadArray: Prevented massive array allocation of {count} elements on field '{field.Name}'. Data likely misaligned.");
+                return new object[0];
+            }
+
+            bool isReference = (field.Size == 8 && field.Alignment == 8 &&
+                                !PrimitiveTypeMap.IsPrimitive(field.TypeHash) &&
+                                field.TypeHash != 0);
+
+            bool isStringArray = (field.Type == "String[]" ||
+                                  (field.ElementTypeHash != 0 && field.ElementTypeHash == 0x11));
+
+            uint elemSize = field.Size;
+            uint elemAlign = field.Alignment;
+
+            if (elemSize == 0 && field.TypeHash != 0 && !PrimitiveTypeMap.IsPrimitive(field.TypeHash))
+            {
+                if (classes.TryGetValue(field.TypeHash, out var classLayout))
+                {
+                    elemSize = (uint)classLayout.Size;
+                    elemAlign = (uint)classLayout.Alignment;
+                }
+            }
+
+            if (elemSize == 0) elemSize = 1;
+            if (elemAlign == 0) elemAlign = 1; // CRITICAL: prevents stride from becoming 0
+
+            // stride = (size + align - 1) & ~(align - 1)
+            uint stride = (elemSize + elemAlign - 1) & ~(elemAlign - 1);
+
             object[] arr = new object[count];
-            for (uint i = 0; i < count; i++) arr[i] = ReadPrimitive(bufOff + (i * step), field, classes);
+            for (int i = 0; i < count; i++)
+            {
+                // offset = i * stride
+                long offset = i * stride;
+
+                if (isReference)
+                {
+                    long oldPos = _patchedReader.BaseStream.Position;
+                    _patchedReader.BaseStream.Position = bufOff + offset;
+                    long refVal = _patchedReader.ReadLong(Endianness);
+                    _patchedReader.BaseStream.Position = oldPos;
+
+                    if (refVal == 0 || refVal == -1)
+                    {
+                        arr[i] = null;
+                        continue;
+                    }
+                    long refPos = DataOffset + (bufOff + offset + 8);
+                    long target = refPos + ((refVal << 4) >> 4);
+
+                    if (isStringArray)
+                    {
+                        long old = _patchedReader.BaseStream.Position;
+                        _patchedReader.BaseStream.Position = target - DataOffset;
+                        uint cap = _patchedReader.ReadUInt(Endianness);
+                        uint cnt = _patchedReader.ReadUInt(Endianness);
+                        long ptr = _patchedReader.ReadLong(Endianness);
+                        string s = "";
+                        if (ptr != 0 && ptr != -1 && cnt > 0)
+                        {
+                            long strTarget = target + ((ptr << 4) >> 4);
+                            _patchedReader.BaseStream.Position = strTarget - DataOffset;
+                            s = _patchedReader.ReadNullTerminatedString();
+                        }
+                        _patchedReader.BaseStream.Position = old;
+                        arr[i] = s;
+                    }
+                    else
+                    {
+                        arr[i] = ReadObjectAt(target, classes);
+                    }
+                }
+                else
+                {
+                    arr[i] = ReadPrimitive(bufOff + offset, field, classes);
+                }
+            }
             return arr;
         }
 
