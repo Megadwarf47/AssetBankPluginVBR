@@ -195,10 +195,12 @@ namespace AssetBankPlugin.Ant
                     //look through all rig Assets for all layout hierarchy assets
                     foreach (var asset in refsValues)
                     {
+                        if(asset.Bank.Equals(this.Bank))
                         if (asset is RigAsset ri)
                         {
                         if (dof.rigId == Guid.Empty)
                         {
+                        
                             for (int j = 0; j < ri.DofSetLists.Length; j++)
                             {
                                     LayoutHierarchyAsset layoutHierarchyAsset = (LayoutHierarchyAsset)AntRefTable.Get(ri.DofSetLists[j]);
