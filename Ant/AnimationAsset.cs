@@ -5,6 +5,8 @@ using System.Diagnostics;
 using AssetBankPlugin.Enums;
 using AssetBankPlugin.Export;
 using FrostySdk;
+using System.Windows.Documents;
+using System.Windows.Controls;
 
 namespace AssetBankPlugin.Ant
 {
@@ -44,6 +46,27 @@ namespace AssetBankPlugin.Ant
             }
             ChannelToDofAsset = (Guid)data["ChannelToDofAsset"];
         }
+        public LayoutHierarchyAsset RecursiveHierarchySearch(LayoutHierarchyAsset initialHierarchy, LayoutHierarchyAsset TargetHierarchy)
+        {
+            if (initialHierarchy.ID == TargetHierarchy.ID)
+            {
+                return initialHierarchy;
+            }
+            for (int i = 0; i < initialHierarchy.Children.Length; i++)
+            {
+                AntAsset asset = AntRefTable.Get(initialHierarchy.Children[i]);
+                if (asset is LayoutHierarchyAsset)
+                {
+                    LayoutHierarchyAsset returnAsset = RecursiveHierarchySearch((LayoutHierarchyAsset)asset, TargetHierarchy);
+                    if (returnAsset == TargetHierarchy)
+                    {
+                        return returnAsset;
+                    }
+                }
+
+            }
+                return initialHierarchy;
+        }
 
         public Dictionary<string, BoneChannelType> GetChannels(Guid channelToDofAsset)
         {
@@ -61,7 +84,7 @@ namespace AssetBankPlugin.Ant
                 case ProfileVersion.PlantsVsZombiesGardenWarfare2:
                     dof = (ChannelToDofAsset)AntRefTable.Get(ChannelToDofAsset);
                     StorageType = dof.StorageType;
-
+                        
                     foreach (var asset in refsValues)
                     {
                         if (asset is ClipControllerAsset cl && cl.Anims.Contains(ID))
@@ -114,7 +137,7 @@ namespace AssetBankPlugin.Ant
                             {
                                 FPS = cl.FPS;
                                 hierarchy = lh;
-                                break;
+
                             }
                         }
                     }
@@ -133,11 +156,14 @@ namespace AssetBankPlugin.Ant
             }
 
             var channelNames = new Dictionary<string, BoneChannelType>(initialCapacity);
+            var rigGuid = Guid.Empty;
             for (int i = 0; i < hierarchy.LayoutAssets.Length; i++)
             {
                 AntAsset layoutAsset = AntRefTable.Get(hierarchy.LayoutAssets[i]);
+
                 if (layoutAsset is LayoutAsset la)
                 {
+                    
                     // Cache the collection and count for faster loop execution
                     var slots = la.Slots;
                     int slotsCount = slots.Count;
@@ -157,17 +183,46 @@ namespace AssetBankPlugin.Ant
             int dataLength = data.Length;
             var channelNamesList = channelNames.ToArray();
             int channelNamesLength = channelNamesList.Length;
+            
 
             // 6. Use primitive Arrays instead of List<T> wherever the size is fixed
             string[] channelsArray = null;
             List<string> channelsList = null;
             bool useArray = true;
-
+            // 7. find rig asset for dofIds in gw2+
+            if (currentProfile == ProfileVersion.PlantsVsZombiesGardenWarfare2 & dof.rigId == Guid.Empty)
+            {
+                    //look through all rig Assets for all layout hierarchy assets
+                    foreach (var asset in refsValues)
+                    {
+                        if (asset is RigAsset ri)
+                        {
+                        if (dof.rigId == Guid.Empty)
+                        {
+                            for (int j = 0; j < ri.DofSetLists.Length; j++)
+                            {
+                                    LayoutHierarchyAsset layoutHierarchyAsset = (LayoutHierarchyAsset)AntRefTable.Get(ri.DofSetLists[j]);
+                                    layoutHierarchyAsset = RecursiveHierarchySearch(layoutHierarchyAsset, hierarchy);
+                                    if (layoutHierarchyAsset.ID == hierarchy.ID)
+                                    {
+                                        dof.rigId = ri.ID;
+                                    }
+                            }
+                        }     
+                            
+                        }
+                    }
+                
+            }
             if (currentProfile == ProfileVersion.PlantsVsZombiesGardenWarfare2)
             {
-                var rig = AntRefTable.Get(dof.rigId) as RigAsset;
-                if (rig == null) return new Dictionary<string, BoneChannelType>();
-
+                
+                
+                if (dof.rigId == Guid.Empty)
+                {
+                    return new Dictionary<string, BoneChannelType>();
+                }
+                RigAsset rig = (RigAsset)AntRefTable.Get(dof.rigId);
                 channelsArray = new string[dataLength];
                 ushort[] dofIds = rig.DofIds;
                 int dofIdsLength = dofIds?.Length ?? 0;
