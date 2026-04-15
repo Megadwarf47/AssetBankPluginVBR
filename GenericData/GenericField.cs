@@ -1,4 +1,4 @@
-﻿namespace AssetBankPlugin.GenericData
+namespace AssetBankPlugin.GenericData
 {
     public class GenericField
     {
@@ -12,6 +12,11 @@
 
         public bool IsList;       // Dynamic heap array (Flags & 1)
         public int InlineCount;   // Fixed inline array (Count > 1)
+
+        // New properties for correct array element handling
+        public uint ElementTypeHash;   // hash of the actual element type (for arrays)
+        public uint ElementSize;       // size of one element
+        public uint ElementAlignment;  // alignment of one element
 
         public bool IsArray
         {
