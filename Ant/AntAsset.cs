@@ -1,8 +1,9 @@
-﻿using AssetBankPlugin.Extensions;
+using AssetBankPlugin.Extensions;
 using AssetBankPlugin.GenericData;
 using FrostySdk.IO;
 using System;
 using System.Collections.Generic;
+using System.Linq.Expressions;
 
 namespace AssetBankPlugin.Ant
 {
@@ -14,6 +15,10 @@ namespace AssetBankPlugin.Ant
         public Bank Bank { get; set; }
 
         public abstract void SetData(Dictionary<string, object> data);
+
+        // This stores a compiled, direct delegate to the constructor.
+        // It bypasses both Type.GetType string scanning AND Activator.CreateInstance overhead
+        private static readonly Dictionary<string, Func<AntAsset>> s_activatorCache = new Dictionary<string, Func<AntAsset>>();
 
         public static AntAsset Deserialize(NativeReader r, SectionData section, Dictionary<uint, GenericClass> classes, Bank bank)
         {
@@ -29,9 +34,9 @@ namespace AssetBankPlugin.Ant
 
                 r.ReadDataHeader(section.Endianness, out uint base_hash, out uint base_type, out uint base_offset);
 
-                var baseValues = section.ReadValues(r, 
-                    classes, 
-                    section.DataOffset + base_offset + Convert.ToUInt32(values["__base"]), 
+                var baseValues = section.ReadValues(r,
+                    classes,
+                    section.DataOffset + base_offset + Convert.ToUInt32(values["__base"]),
                     base_type);
 
                 foreach (var value in baseValues)
@@ -41,12 +46,30 @@ namespace AssetBankPlugin.Ant
                 }
             }
 
-            Type assetType = Type.GetType("AssetBankPlugin.Ant." + classes[type].Name);
+            string typeName = classes[type].Name;
 
-            // If assetType is not null, that means we have a supported AntAsset. In that case, parse it and add it to the AntRefTable.
-            if (assetType != null)
+            // Grab the compiled constructor from the cache
+            if (!s_activatorCache.TryGetValue(typeName, out Func<AntAsset> activator))
             {
-                AntAsset asset = (AntAsset)Activator.CreateInstance(assetType);
+                // First time seeing this type = resolve it and compile a constructor delegate
+                Type assetType = Type.GetType("AssetBankPlugin.Ant." + typeName);
+                if (assetType != null)
+                {
+                    var newExp = Expression.New(assetType);
+                    var lambda = Expression.Lambda<Func<AntAsset>>(newExp);
+                    activator = lambda.Compile();
+                }
+                else
+                {
+                    activator = null;
+                }
+                s_activatorCache[typeName] = activator;
+            }
+
+            // If activator is not null, invoke the compiled delegate directly.
+            if (activator != null)
+            {
+                AntAsset asset = activator(); // Identical speed to writing 'new Asset()'
                 asset.Bank = bank;
                 asset.SetData(values);
 
@@ -57,7 +80,6 @@ namespace AssetBankPlugin.Ant
             {
                 return null;
             }
-
         }
     }
 }
