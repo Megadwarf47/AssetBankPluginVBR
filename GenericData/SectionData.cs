@@ -1,6 +1,7 @@
-﻿using AssetBankPlugin.Extensions;
+using AssetBankPlugin.Extensions;
 using FrostySdk.IO;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using System.Text;
 
 namespace AssetBankPlugin.GenericData
@@ -26,26 +27,34 @@ namespace AssetBankPlugin.GenericData
             r.BaseStream.Position += DataSize - 16;
         }
 
-        public Dictionary<string, object> ReadValues(NativeReader r, Dictionary<uint, GenericClass> classes, uint baseOffset, uint type)
+        public Dictionary<string, object> ReadValues(
+            NativeReader r,
+            Dictionary<uint, GenericClass> classes,
+            uint baseOffset,
+            uint type)
         {
-            var data = new Dictionary<string, object>();
-
             GenericClass cl = classes[type];
-            for (int x = 0; x < cl.Elements.Count; x++)
+            int count = cl.Elements.Count;
+
+            /// Pre size to avoid internal rehashing on every Add.
+            var data = new Dictionary<string, object>(count);
+
+            for (int x = 0; x < count; x++)
             {
                 GenericField field = cl.Elements[x];
                 object fieldData = null;
 
-                // Go to the offset of the current field.
-                r.BaseStream.Position = baseOffset + field.Offset;
+                /// Seek only when necessary avoids invalidating the FileStream
+                /// read ahead buffer on every field when reads are already sequential.
+                SeekTo(r, baseOffset + field.Offset);
+
                 switch (field.Type)
                 {
                     case "Bool":
                         if (!field.IsArray)
-                        {
                             fieldData = r.ReadBoolean();
-                        }
                         break;
+
                     case "UInt8":
                         if (!field.IsArray)
                         {
@@ -53,13 +62,12 @@ namespace AssetBankPlugin.GenericData
                         }
                         else
                         {
-                            uint capacity = r.ReadUInt(Endianness);
-                            uint size = r.ReadUInt(Endianness);
-                            long offset = r.ReadLong(Endianness);
-                            r.BaseStream.Position = DataOffset + offset;
-                            fieldData = r.ReadByteArray((int)size);
+                            ReadArrayHeader(r, out uint u8Size, out long u8Pos);
+                            SeekTo(r, u8Pos);
+                            fieldData = r.ReadByteArray((int)u8Size);
                         }
                         break;
+
                     case "Int8":
                         if (!field.IsArray)
                         {
@@ -67,13 +75,12 @@ namespace AssetBankPlugin.GenericData
                         }
                         else
                         {
-                            uint capacity = r.ReadUInt(Endianness);
-                            uint size = r.ReadUInt(Endianness);
-                            long offset = r.ReadLong(Endianness);
-                            r.BaseStream.Position = DataOffset + offset;
-                            fieldData = r.ReadSByteArray((int)size);
+                            ReadArrayHeader(r, out uint i8Size, out long i8Pos);
+                            SeekTo(r, i8Pos);
+                            fieldData = r.ReadSByteArray((int)i8Size);
                         }
                         break;
+
                     case "Int16":
                         if (!field.IsArray)
                         {
@@ -81,41 +88,12 @@ namespace AssetBankPlugin.GenericData
                         }
                         else
                         {
-                            uint capacity = r.ReadUInt(Endianness);
-                            uint size = r.ReadUInt(Endianness);
-                            long offset = r.ReadLong(Endianness);
-                            r.BaseStream.Position = DataOffset + offset;
-                            fieldData = r.ReadShortArray((int)size, Endianness);
+                            ReadArrayHeader(r, out uint i16Size, out long i16Pos);
+                            SeekTo(r, i16Pos);
+                            fieldData = r.ReadShortArray((int)i16Size, Endianness);
                         }
                         break;
-                    case "Int32":
-                        if (!field.IsArray)
-                        {
-                            fieldData = r.ReadInt(Endianness);
-                        }
-                        else
-                        {
-                            uint capacity = r.ReadUInt(Endianness);
-                            uint size = r.ReadUInt(Endianness);
-                            long offset = r.ReadLong(Endianness);
-                            r.BaseStream.Position = DataOffset + offset;
-                            fieldData = r.ReadIntArray((int)size, Endianness);
-                        }
-                        break;
-                    case "Int64":
-                        if (!field.IsArray)
-                        {
-                            fieldData = r.ReadLong(Endianness);
-                        }
-                        else
-                        {
-                            uint capacity = r.ReadUInt(Endianness);
-                            uint size = r.ReadUInt(Endianness);
-                            long offset = r.ReadLong(Endianness);
-                            r.BaseStream.Position = DataOffset + offset;
-                            fieldData = r.ReadLongArray((int)size, Endianness);
-                        }
-                        break;
+
                     case "UInt16":
                         if (!field.IsArray)
                         {
@@ -123,41 +101,64 @@ namespace AssetBankPlugin.GenericData
                         }
                         else
                         {
-                            uint capacity = r.ReadUInt(Endianness);
-                            uint size = r.ReadUInt(Endianness);
-                            long offset = r.ReadLong(Endianness);
-                            r.BaseStream.Position = DataOffset + offset;
-                            fieldData = r.ReadUShortArray((int)size, Endianness);
+                            ReadArrayHeader(r, out uint u16Size, out long u16Pos);
+                            SeekTo(r, u16Pos);
+                            fieldData = r.ReadUShortArray((int)u16Size, Endianness);
                         }
                         break;
-                    case "UInt32":
+
+                    case "Int32":
                         if (!field.IsArray)
                         {
                             fieldData = r.ReadInt(Endianness);
                         }
                         else
                         {
-                            uint capacity = r.ReadUInt(Endianness);
-                            uint size = r.ReadUInt(Endianness);
-                            long offset = r.ReadLong(Endianness);
-                            r.BaseStream.Position = DataOffset + offset;
-                            fieldData = r.ReadUIntArray((int)size, Endianness);
+                            ReadArrayHeader(r, out uint i32Size, out long i32Pos);
+                            SeekTo(r, i32Pos);
+                            fieldData = r.ReadIntArray((int)i32Size, Endianness);
                         }
                         break;
-                    case "UInt64":
+
+                    case "UInt32":
+                        if (!field.IsArray)
+                        {
+                            fieldData = r.ReadInt(Endianness); // intentional: Frostbite quirk, preserved as-is
+                        }
+                        else
+                        {
+                            ReadArrayHeader(r, out uint u32Size, out long u32Pos);
+                            SeekTo(r, u32Pos);
+                            fieldData = r.ReadUIntArray((int)u32Size, Endianness);
+                        }
+                        break;
+
+                    case "Int64":
                         if (!field.IsArray)
                         {
                             fieldData = r.ReadLong(Endianness);
                         }
                         else
                         {
-                            uint capacity = r.ReadUInt(Endianness);
-                            uint size = r.ReadUInt(Endianness);
-                            long offset = r.ReadLong(Endianness);
-                            r.BaseStream.Position = DataOffset + offset;
-                            fieldData = r.ReadULongArray((int)size, Endianness);
+                            ReadArrayHeader(r, out uint i64Size, out long i64Pos);
+                            SeekTo(r, i64Pos);
+                            fieldData = r.ReadLongArray((int)i64Size, Endianness);
                         }
                         break;
+
+                    case "UInt64":
+                        if (!field.IsArray)
+                        {
+                            fieldData = r.ReadLong(Endianness); /// preserved as-is
+                        }
+                        else
+                        {
+                            ReadArrayHeader(r, out uint u64Size, out long u64Pos);
+                            SeekTo(r, u64Pos);
+                            fieldData = r.ReadULongArray((int)u64Size, Endianness);
+                        }
+                        break;
+
                     case "Float":
                         if (!field.IsArray)
                         {
@@ -165,13 +166,12 @@ namespace AssetBankPlugin.GenericData
                         }
                         else
                         {
-                            uint capacity = r.ReadUInt(Endianness);
-                            uint size = r.ReadUInt(Endianness);
-                            long offset = r.ReadLong(Endianness);
-                            r.BaseStream.Position = DataOffset + offset;
-                            fieldData = r.ReadSingleArray((int)size, Endianness);
+                            ReadArrayHeader(r, out uint fSize, out long fPos);
+                            SeekTo(r, fPos);
+                            fieldData = r.ReadSingleArray((int)fSize, Endianness);
                         }
                         break;
+
                     case "Double":
                         if (!field.IsArray)
                         {
@@ -179,37 +179,34 @@ namespace AssetBankPlugin.GenericData
                         }
                         else
                         {
-                            uint capacity = r.ReadUInt(Endianness);
-                            uint size = r.ReadUInt(Endianness);
-                            long offset = r.ReadLong(Endianness);
-                            r.BaseStream.Position = DataOffset + offset;
-                            fieldData = r.ReadDoubleArray((int)size, Endianness);
+                            ReadArrayHeader(r, out uint dSize, out long dPos);
+                            SeekTo(r, dPos);
+                            fieldData = r.ReadDoubleArray((int)dSize, Endianness);
                         }
                         break;
+
                     case "DataRef":
                         if (!field.IsArray)
                         {
-                            fieldData = r.ReadLong(Endianness);
+                            fieldData = r.ReadLong(Endianness); /// preserved as-is
                         }
                         else
                         {
-                            uint capacity = r.ReadUInt(Endianness);
-                            uint size = r.ReadUInt(Endianness);
-                            long offset = r.ReadLong(Endianness);
-                            r.BaseStream.Position = DataOffset + offset;
-                            fieldData = r.ReadGuidArray((int)size, Endianness);
+                            ReadArrayHeader(r, out uint drSize, out long drPos);
+                            SeekTo(r, drPos);
+                            fieldData = r.ReadGuidArray((int)drSize, Endianness);
                         }
                         break;
+
                     case "String":
-                        if (!field.IsArray)
+                        if (!field.IsArray) /// preserved as-is
                         {
-                            uint capacity = r.ReadUInt(Endianness);
-                            uint size = r.ReadUInt(Endianness);
-                            long offset = r.ReadLong(Endianness);
-                            r.BaseStream.Position = DataOffset + offset;
-                            fieldData = r.ReadSizedString((int)size);
+                            ReadArrayHeader(r, out uint strSize, out long strPos);
+                            SeekTo(r, strPos);
+                            fieldData = r.ReadSizedString((int)strSize);
                         }
                         break;
+
                     case "Guid":
                         if (!field.IsArray)
                         {
@@ -217,41 +214,66 @@ namespace AssetBankPlugin.GenericData
                         }
                         else
                         {
-                            uint capacity = r.ReadUInt(Endianness);
-                            uint size = r.ReadUInt(Endianness);
-                            long offset = r.ReadLong(Endianness);
-                            r.BaseStream.Position = DataOffset + offset;
-                            fieldData = r.ReadGuidArray((int)size, Endianness);
+                            ReadArrayHeader(r, out uint gSize, out long gPos);
+                            SeekTo(r, gPos);
+                            fieldData = r.ReadGuidArray((int)gSize, Endianness);
                         }
                         break;
+
                     default:
                         if (!field.IsArray)
                         {
+                            /// Nested struct; the fields absolute position is already the base
                             fieldData = ReadValues(r, classes, (uint)(field.Offset + baseOffset), field.TypeHash);
                         }
                         else
                         {
-                            uint capacity = r.ReadUInt(Endianness);
-                            uint size = r.ReadUInt(Endianness);
-                            long offset = r.ReadLong(Endianness);
-                            fieldData = new Dictionary<string, object>[size];
-                            for (uint i = 0; i < size; i++)
+                            /// Array of nested structs.
+                            ReadArrayHeader(r, out uint arrSize, out long arrDataPos);
+
+                            var arr = new Dictionary<string, object>[arrSize];
+
+                            uint alignedSize = GetAlignedSize(field.Size, field.Alignment);
+
+                            for (uint i = 0; i < arrSize; i++)
                             {
-                                var alignedSize = GetAlignedSize(cl.Elements[x].Size, cl.Elements[x].Alignment);
-                                (fieldData as Dictionary<string, object>[])[i] = 
-                                    ReadValues(r, classes, (uint)(DataOffset + offset + alignedSize * i), field.TypeHash);
+                                arr[i] = ReadValues(
+                                    r,
+                                    classes,
+                                    (uint)(arrDataPos + alignedSize * i),
+                                    field.TypeHash);
                             }
+
+                            fieldData = arr;
                         }
                         break;
                 }
-                data.Add(field.Name, fieldData);
+
+                data[field.Name] = fieldData;
             }
+
             return data;
         }
 
-        /// <summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private void ReadArrayHeader(NativeReader r, out uint size, out long dataPosition)
+        {
+            _ = r.ReadUInt(Endianness);
+            size = r.ReadUInt(Endianness);
+            dataPosition = DataOffset + r.ReadLong(Endianness);
+        }
+
+        /// Conditionally seeks the stream only when it is not already at <paramref name="position"/>.
+        /// This prevents unnecessary invalidation of the FileStream internal read ahead buffer
+        /// on sequential field reads, which is the primary cause of I/O thrashing in hot parse loops.
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static void SeekTo(NativeReader r, long position)
+        {
+            if (r.BaseStream.Position != position)
+                r.BaseStream.Position = position;
+        }
+
         /// Gets the total amount of bytes a block would need if it were to be aligned by <paramref name="alignBy"/>.
-        /// </summary>
         private static uint GetAlignedSize(uint size, uint alignBy)
         {
             if (size % alignBy != 0)
@@ -264,6 +286,4 @@ namespace AssetBankPlugin.GenericData
             return $"GD.DATA [{Endianness}-Endian, Offset {DataOffset}, DataSize {DataSize}]";
         }
     }
-
-
 }

@@ -1,9 +1,11 @@
-﻿using AssetBankPlugin.Ant;
+using AssetBankPlugin.Ant;
 using AssetBankPlugin.Export;
 using AssetBankPlugin.GenericData;
 using Frosty.Controls;
 using Frosty.Core;
+using Frosty.Core.Controls;
 using FrostySdk;
+using FrostySdk.Interfaces;
 using FrostySdk.IO;
 using FrostySdk.Managers;
 using System;
@@ -15,27 +17,61 @@ namespace AssetBankPlugin
 {
     public class AntStateAssetDefinition : AssetDefinition
     {
-        public static Bank DefaultAntState;
+        /// Tracker to prevent loading the same level context twice
+        private static HashSet<string> _loadedContexts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        private static readonly object _loadLock = new object();
+
+        /// This loads all AssetBank bundles that share the same folder prefix as the current asset.
+        /// It ensures that cross‑referenced AnimationAssets (e.g. boss <-> level) are in AntRefTable.
+        /// Ts is currently broken i believe
+        public static void LoadContextualBanks(EbxAssetEntry entry)
+        {
+            if (entry == null || entry.Bundles.Count == 0)
+                return;
+
+            string bundleName = App.AssetManager.GetBundleEntry(entry.Bundles[0]).Name;
+            string prefix = bundleName.Contains("/")
+                ? bundleName.Substring(0, bundleName.LastIndexOf('/') + 1)
+                : bundleName;
+
+            lock (_loadLock)
+            {
+                if (_loadedContexts.Contains(prefix))
+                    return;
+
+                var matchingBundles = App.AssetManager.EnumerateBundles()
+                    .Where(b => b.Name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
+
+                foreach (var bundle in matchingBundles)
+                {
+                    LoadAntStateFromBundle(bundle);
+                }
+
+                _loadedContexts.Add(prefix);
+            }
+        }
 
         public override void GetSupportedExportTypes(List<AssetExportType> exportTypes)
         {
             exportTypes.Add(new AssetExportType("gltf", "GL Transfer format"));
             exportTypes.Add(new AssetExportType("xml", "XML Animation Keyframe Dump"));
             exportTypes.Add(new AssetExportType("smd", "Source StudioMdl Data"));
-
             base.GetSupportedExportTypes(exportTypes);
         }
 
+        public override FrostyAssetEditor GetEditor(ILogger logger) => new AntStateAssetEditor(logger);
+
         public override bool Export(EbxAssetEntry entry, string path, string filterType)
         {
-            // Load Options
             var opt = new AnimationOptions();
             opt.Load();
 
-            // Get the Ebx.
+            /// Load cross‑referenced banks before reading the main asset.
+            LoadContextualBanks(entry);
+
             EbxAsset asset = App.AssetManager.GetEbx(entry);
             dynamic antStateAsset = asset.RootObject;
-            // Get the Chunk.
+
             Stream s;
             int bundleId = 0;
             if (antStateAsset.StreamingGuid == Guid.Empty)
@@ -51,48 +87,14 @@ namespace AssetBankPlugin
                 s = App.AssetManager.GetChunk(chunk);
             }
 
-            // Load all AntStates into memory.
-            IEnumerable<BundleEntry> bundles;
-            string cachePath = $"Caches/{ProfilesLibrary.ProfileName}_antstate.cache";
-            string internalCachePath = $"Caches/{ProfilesLibrary.ProfileName}_antref.cache";
-
-            // If we're not using the cache or it doesn't exist yet, then get every bundle.
-            if (opt.UseCache)
-            {
-                if (File.Exists(cachePath) && File.Exists(internalCachePath))
-                {
-                    Cache.ReadState(cachePath);
-                    Cache.ReadMap(internalCachePath);
-                }
-                else
-                {
-                    // First time setup, read all bundles and store them in the antstatecache.
-                    bundles = App.AssetManager.EnumerateBundles();
-                    foreach (var bundle in bundles)
-                    {
-                        LoadAntStateFromBundle(bundle);
-                    }
-                    Cache.WriteState(cachePath);
-                    Cache.WriteMap(internalCachePath);
-                }
-            }
-            else
-            {
-                bundles = App.AssetManager.EnumerateBundles();
-                foreach (var bundle in bundles)
-                {
-                    LoadAntStateFromBundle(bundle);
-                }
-            }
-            // Read the main AntStateAsset.
             using (var r = new NativeReader(s))
             {
                 var bank = new Bank(r, bundleId);
 
                 var skelEbx = App.AssetManager.GetEbx(opt.ExportSkeletonAsset);
                 dynamic skel = skelEbx.RootObject;
-
                 var skeleton = SkeletonAssetExport.ConvertToInternal(skel);
+
                 foreach (var dataName in bank.DataNames)
                 {
                     var dat = AntRefTable.Get(dataName.Value);
@@ -100,31 +102,36 @@ namespace AssetBankPlugin
                     {
                         anim.Name = dataName.Key;
                         anim.Channels = anim.GetChannels(anim.ChannelToDofAsset);
+
+                        /// Skip assets with broken references (caused by missing context)
+                        if (anim.Channels == null || anim.Channels.Count == 0)
+                            continue;
+
                         var intern = anim.ConvertToInternal();
-                        new AnimationExporterSEANIM().Export(intern, skeleton, Path.GetDirectoryName(path));
-                      
-                        
+                        if (intern != null)
+                            new AnimationExporterSEANIM().Export(intern, skeleton, Path.GetDirectoryName(path));
                     }
                 }
             }
 
-            FrostyMessageBox.Show($"Exported {entry.Name} for {ProfilesLibrary.ProfileName}", "Test");
-
+            FrostyMessageBox.Show($"Exported {entry.Name} for {ProfilesLibrary.ProfileName}", "Export Finished");
             return true;
         }
 
         public static void LoadAntStateFromBundle(BundleEntry bundle)
         {
-                var resources = App.AssetManager.EnumerateRes(bundle).Where(x => x.Type == "AssetBank");
-                foreach (var res in resources)
+            /// AssetBank resource types (may vary slightly between games)
+            var resources = App.AssetManager.EnumerateRes(bundle)
+                .Where(r => r.ResType == 0x51A3C853 || r.ResType == 0xEC1B7BF4);
+
+            foreach (var res in resources)
+            {
+                using (var antBank = App.AssetManager.GetRes(res))
+                using (var antReader = new NativeReader(antBank))
                 {
-                    Console.WriteLine(res.DisplayName);
-                    var antBank = App.AssetManager.GetRes(res);
-                    var antReader = new NativeReader(antBank);
                     _ = new Bank(antReader, App.AssetManager.GetBundleId(bundle));
-                    antBank.Dispose();
-                    antReader.Dispose();
                 }
+            }
         }
     }
 }

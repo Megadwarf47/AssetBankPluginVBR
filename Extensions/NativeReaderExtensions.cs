@@ -1,12 +1,27 @@
-﻿using AssetBankPlugin.Enums;
+using AssetBankPlugin.Enums;
 using AssetBankPlugin.GenericData;
 using FrostySdk.IO;
 using System;
+using System.Runtime.InteropServices;
 
 namespace AssetBankPlugin.Extensions
 {
     public static class NativeReaderExtensions
     {
+        [StructLayout(LayoutKind.Explicit)]
+        private struct FloatUnion
+        {
+            [FieldOffset(0)] public uint UIntValue;
+            [FieldOffset(0)] public float FloatValue;
+        }
+
+        [StructLayout(LayoutKind.Explicit)]
+        private struct DoubleUnion
+        {
+            [FieldOffset(0)] public ulong ULongValue;
+            [FieldOffset(0)] public double DoubleValue;
+        }
+
         public static ReflLayout ReadReflLayoutEntry(this NativeReader r, Endian bigEndian, out int fieldSize)
         {
             var layout = new ReflLayout();
@@ -41,8 +56,6 @@ namespace AssetBankPlugin.Extensions
                 entry.mRLE = r.ReadShort(bigEndian);
                 entry.mLayout = r.ReadLong(bigEndian);
 
-                // Sometimes there seems to be a missing entry?
-                // In that case we let everything finish, but then we fix up the alignments.
                 if (entry.mElementSize != 0 && entry.mCount != 0)
                 {
                     layout.mEntries[j] = entry;
@@ -57,7 +70,6 @@ namespace AssetBankPlugin.Extensions
             r.ReadBytes(1); // Pad
             layout.mName = r.ReadNullTerminatedString();
 
-            // Fill field names.
             layout.mFieldNames = new string[fieldSize];
             for (int j = 0; j < fieldSize; j++)
             {
@@ -77,123 +89,267 @@ namespace AssetBankPlugin.Extensions
             r.ReadBytes(2);
         }
 
+        // Array methods , optimized
+
+        public static byte[] ReadByteArray(this NativeReader r, int count)
+            => r.ReadBytes(count);
+
         public static sbyte[] ReadSByteArray(this NativeReader r, int count)
         {
+            byte[] raw = r.ReadBytes(count);
             sbyte[] array = new sbyte[count];
-
-            for (int i = 0; i < count; i++)
-            {
-                array[i] = r.ReadSByte();
-            }
-
+            Buffer.BlockCopy(raw, 0, array, 0, count);
             return array;
         }
-        public static byte[] ReadByteArray(this NativeReader r, int count)
-        {
-            byte[] array = new byte[count];
 
-            for (int i = 0; i < count; i++)
-            {
-                array[i] = r.ReadByte();
-            }
-
-            return array;
-        }
-        public static short[] ReadShortArray(this NativeReader r, int count, Endian bigEndian)
+        public static short[] ReadShortArray(this NativeReader r, int count, Endian endian)
         {
+            byte[] raw = r.ReadBytes(count * 2);
             short[] array = new short[count];
 
-            for (int i = 0; i < count; i++)
+            if (endian == Endian.Little)
             {
-                array[i] = r.ReadShort(bigEndian);
+                for (int i = 0; i < count; i++)
+                {
+                    int b = i * 2;
+                    array[i] = (short)(raw[b] | raw[b + 1] << 8);
+                }
+            }
+            else
+            {
+                for (int i = 0; i < count; i++)
+                {
+                    int b = i * 2;
+                    array[i] = (short)(raw[b + 1] | raw[b] << 8);
+                }
             }
 
             return array;
         }
-        public static int[] ReadIntArray(this NativeReader r, int count, Endian bigEndian)
+
+        public static ushort[] ReadUShortArray(this NativeReader r, int count, Endian endian)
         {
-            int[] array = new int[count];
-
-            for (int i = 0; i < count; i++)
-            {
-                array[i] = r.ReadInt(bigEndian);
-            }
-
-            return array;
-        }
-        public static long[] ReadLongArray(this NativeReader r, int count, Endian bigEndian)
-        {
-            long[] array = new long[count];
-
-            for (int i = 0; i < count; i++)
-            {
-                array[i] = r.ReadLong(bigEndian);
-            }
-
-            return array;
-        }
-        public static ushort[] ReadUShortArray(this NativeReader r, int count, Endian bigEndian)
-        {
+            byte[] raw = r.ReadBytes(count * 2);
             ushort[] array = new ushort[count];
 
-            for (int i = 0; i < count; i++)
+            if (endian == Endian.Little)
             {
-                array[i] = r.ReadUShort(bigEndian);
+                for (int i = 0; i < count; i++)
+                {
+                    int b = i * 2;
+                    array[i] = (ushort)(raw[b] | raw[b + 1] << 8);
+                }
+            }
+            else
+            {
+                for (int i = 0; i < count; i++)
+                {
+                    int b = i * 2;
+                    array[i] = (ushort)(raw[b + 1] | raw[b] << 8);
+                }
             }
 
             return array;
         }
-        public static uint[] ReadUIntArray(this NativeReader r, int count, Endian bigEndian)
+
+        public static int[] ReadIntArray(this NativeReader r, int count, Endian endian)
         {
+            byte[] raw = r.ReadBytes(count * 4);
+            int[] array = new int[count];
+
+            if (endian == Endian.Little)
+            {
+                for (int i = 0; i < count; i++)
+                {
+                    int b = i * 4;
+                    array[i] = raw[b] | raw[b + 1] << 8 | raw[b + 2] << 16 | raw[b + 3] << 24;
+                }
+            }
+            else
+            {
+                for (int i = 0; i < count; i++)
+                {
+                    int b = i * 4;
+                    array[i] = raw[b + 3] | raw[b + 2] << 8 | raw[b + 1] << 16 | raw[b] << 24;
+                }
+            }
+
+            return array;
+        }
+
+        public static uint[] ReadUIntArray(this NativeReader r, int count, Endian endian)
+        {
+            byte[] raw = r.ReadBytes(count * 4);
             uint[] array = new uint[count];
 
-            for (int i = 0; i < count; i++)
+            if (endian == Endian.Little)
             {
-                array[i] = r.ReadUInt(bigEndian);
+                for (int i = 0; i < count; i++)
+                {
+                    int b = i * 4;
+                    array[i] = (uint)(raw[b] | raw[b + 1] << 8 | raw[b + 2] << 16 | raw[b + 3] << 24);
+                }
+            }
+            else
+            {
+                for (int i = 0; i < count; i++)
+                {
+                    int b = i * 4;
+                    array[i] = (uint)(raw[b + 3] | raw[b + 2] << 8 | raw[b + 1] << 16 | raw[b] << 24);
+                }
             }
 
             return array;
         }
-        public static ulong[] ReadULongArray(this NativeReader r, int count, Endian bigEndian)
+
+        public static long[] ReadLongArray(this NativeReader r, int count, Endian endian)
         {
+            byte[] raw = r.ReadBytes(count * 8);
+            long[] array = new long[count];
+
+            if (endian == Endian.Little)
+            {
+                for (int i = 0; i < count; i++)
+                {
+                    int b = i * 8;
+                    array[i] =
+                        (long)(uint)(raw[b + 4] | raw[b + 5] << 8 | raw[b + 6] << 16 | raw[b + 7] << 24) << 32 |
+                        (long)(uint)(raw[b] | raw[b + 1] << 8 | raw[b + 2] << 16 | raw[b + 3] << 24);
+                }
+            }
+            else
+            {
+                for (int i = 0; i < count; i++)
+                {
+                    int b = i * 8;
+                    array[i] =
+                        (long)(uint)(raw[b + 3] | raw[b + 2] << 8 | raw[b + 1] << 16 | raw[b] << 24) << 32 |
+                        (long)(uint)(raw[b + 7] | raw[b + 6] << 8 | raw[b + 5] << 16 | raw[b + 4] << 24);
+                }
+            }
+
+            return array;
+        }
+
+        public static ulong[] ReadULongArray(this NativeReader r, int count, Endian endian)
+        {
+            byte[] raw = r.ReadBytes(count * 8);
             ulong[] array = new ulong[count];
 
-            for (int i = 0; i < count; i++)
+            if (endian == Endian.Little)
             {
-                array[i] = r.ReadULong(bigEndian);
+                for (int i = 0; i < count; i++)
+                {
+                    int b = i * 8;
+                    array[i] =
+                        (ulong)(uint)(raw[b + 4] | raw[b + 5] << 8 | raw[b + 6] << 16 | raw[b + 7] << 24) << 32 |
+                        (ulong)(uint)(raw[b] | raw[b + 1] << 8 | raw[b + 2] << 16 | raw[b + 3] << 24);
+                }
+            }
+            else
+            {
+                for (int i = 0; i < count; i++)
+                {
+                    int b = i * 8;
+                    array[i] =
+                        (ulong)(uint)(raw[b + 3] | raw[b + 2] << 8 | raw[b + 1] << 16 | raw[b] << 24) << 32 |
+                        (ulong)(uint)(raw[b + 7] | raw[b + 6] << 8 | raw[b + 5] << 16 | raw[b + 4] << 24);
+                }
             }
 
             return array;
         }
-        public static float[] ReadSingleArray(this NativeReader r, int count, Endian bigEndian)
+
+        public static float[] ReadSingleArray(this NativeReader r, int count, Endian endian)
         {
+            byte[] raw = r.ReadBytes(count * 4);
             float[] array = new float[count];
 
-            for (int i = 0; i < count; i++)
+            if (endian == Endian.Little)
             {
-                array[i] = r.ReadFloat(bigEndian);
+                for (int i = 0; i < count; i++)
+                {
+                    int b = i * 4;
+                    uint bits = (uint)(raw[b] | raw[b + 1] << 8 | raw[b + 2] << 16 | raw[b + 3] << 24);
+                    array[i] = new FloatUnion { UIntValue = bits }.FloatValue;
+                }
+            }
+            else
+            {
+                for (int i = 0; i < count; i++)
+                {
+                    int b = i * 4;
+                    uint bits = (uint)(raw[b + 3] | raw[b + 2] << 8 | raw[b + 1] << 16 | raw[b] << 24);
+                    array[i] = new FloatUnion { UIntValue = bits }.FloatValue;
+                }
             }
 
             return array;
         }
-        public static double[] ReadDoubleArray(this NativeReader r, int count, Endian bigEndian)
+
+        public static double[] ReadDoubleArray(this NativeReader r, int count, Endian endian)
         {
+            byte[] raw = r.ReadBytes(count * 8);
             double[] array = new double[count];
 
-            for (int i = 0; i < count; i++)
+            if (endian == Endian.Little)
             {
-                array[i] = r.ReadDouble(bigEndian);
+                for (int i = 0; i < count; i++)
+                {
+                    int b = i * 8;
+                    uint lo = (uint)(raw[b] | raw[b + 1] << 8 | raw[b + 2] << 16 | raw[b + 3] << 24);
+                    uint hi = (uint)(raw[b + 4] | raw[b + 5] << 8 | raw[b + 6] << 16 | raw[b + 7] << 24);
+                    ulong bits = ((ulong)hi) << 32 | lo;
+                    array[i] = new DoubleUnion { ULongValue = bits }.DoubleValue;
+                }
+            }
+            else
+            {
+                for (int i = 0; i < count; i++)
+                {
+                    int b = i * 8;
+                    uint lo = (uint)(raw[b + 3] | raw[b + 2] << 8 | raw[b + 1] << 16 | raw[b] << 24);
+                    uint hi = (uint)(raw[b + 7] | raw[b + 6] << 8 | raw[b + 5] << 16 | raw[b + 4] << 24);
+                    ulong bits = ((ulong)hi) << 32 | lo;
+                    array[i] = new DoubleUnion { ULongValue = bits }.DoubleValue;
+                }
             }
 
             return array;
         }
-        public static Guid[] ReadGuidArray(this NativeReader r, int count, Endian bigEndian)
+
+        public static Guid[] ReadGuidArray(this NativeReader r, int count, Endian endian)
         {
+            byte[] raw = r.ReadBytes(count * 16);
             Guid[] array = new Guid[count];
 
-            for (int i = 0; i < count; i++)
+            if (endian == Endian.Little)
             {
-                array[i] = r.ReadGuid(bigEndian);
+                for (int i = 0; i < count; i++)
+                {
+                    int b = i * 16;
+                    array[i] = new Guid(new byte[]
+                    {
+                        raw[b],      raw[b + 1],  raw[b + 2],  raw[b + 3],
+                        raw[b + 4],  raw[b + 5],  raw[b + 6],  raw[b + 7],
+                        raw[b + 8],  raw[b + 9],  raw[b + 10], raw[b + 11],
+                        raw[b + 12], raw[b + 13], raw[b + 14], raw[b + 15]
+                    });
+                }
+            }
+            else
+            {
+                for (int i = 0; i < count; i++)
+                {
+                    int b = i * 16;
+                    array[i] = new Guid(new byte[]
+                    {
+                        raw[b + 3],  raw[b + 2],  raw[b + 1],  raw[b],
+                        raw[b + 5],  raw[b + 4],  raw[b + 7],  raw[b + 6],
+                        raw[b + 8],  raw[b + 9],  raw[b + 10], raw[b + 11],
+                        raw[b + 12], raw[b + 13], raw[b + 14], raw[b + 15]
+                    });
+                }
             }
 
             return array;

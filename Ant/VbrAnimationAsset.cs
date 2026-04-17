@@ -1,4 +1,4 @@
-﻿using AssetBankPlugin.Export;
+using AssetBankPlugin.Export;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -24,7 +24,7 @@ namespace AssetBankPlugin.Ant
         public float Vec3Max;
         public float FloatMax;
         public float VectorOffsetScale;
-        public float FloatOffsetScale; // ADDED THIS
+        public float FloatOffsetScale;
         public float Dct;
         public ushort NumQuats;
         public ushort NumFloatVec;
@@ -35,7 +35,7 @@ namespace AssetBankPlugin.Ant
         public ushort ConstQuaternionCount;
         public ushort ConstVector3Count;
         public ushort VectorOffsetSize;
-        public ushort FloatOffsetSize; // ADDED THIS
+        public ushort FloatOffsetSize;
         public ushort CodecTypeID;
         public ushort EndFrame2;
         public ushort Flags;
@@ -96,13 +96,20 @@ namespace AssetBankPlugin.Ant
             else if (data.ContainsKey("NumFloat")) NumFloat = Convert.ToUInt16(data["NumFloat"]);
             if (data.ContainsKey("ConstFloatCount")) ConstFloatCount = Convert.ToUInt16(data["ConstFloatCount"]);
 
+            // CRITICAL FIX: Removed DecompressedData = Decompress(); from here!!
+            // We only call base.SetData(data) to finish metadata assignment
             base.SetData(data);
-
-            DecompressedData = Decompress();
         }
 
         public override InternalAnimation ConvertToInternal()
         {
+            // CRITICAL FIX: Lazy Load.
+            // If the list is empty, decompress now (on the export thread).
+            if (DecompressedData == null || DecompressedData.Count == 0)
+            {
+                DecompressedData = Decompress();
+            }
+
             var ret = new InternalAnimation();
 
             List<string> posChannels = new List<string>();
