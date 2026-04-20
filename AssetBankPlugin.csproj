@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk.WindowsDesktop">
+<Project Sdk="Microsoft.NET.Sdk.WindowsDesktop">
   <PropertyGroup>
     <Configurations>Developer - Debug;Release - Alpha;Release - Beta;Release - Final</Configurations>
     <Platforms>x64</Platforms>
@@ -35,6 +35,10 @@
     <DefineConstants>TRACE</DefineConstants>
     <Optimize>true</Optimize>
   </PropertyGroup>
+  
+  <ItemGroup>
+    <None Remove="Images\AntStateAssetFileType.png" />
+  </ItemGroup>
 
   <ItemGroup>
     <Reference Include="PresentationCore" />
@@ -61,8 +65,11 @@
 
   <ItemGroup>
     <Folder Include="Codecs\" />
-    <Folder Include="Images\" />
     <Folder Include="Profiles" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="Images\AntStateAssetFileType.png" />
   </ItemGroup>
 
   <Target Name="PostBuild" AfterTargets="PostBuildEvent">

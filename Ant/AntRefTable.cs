@@ -1,4 +1,4 @@
-﻿using Frosty.Core;
+using Frosty.Core;
 using Frosty.Core.Controls;
 using System;
 using System.Collections.Generic;
@@ -17,6 +17,10 @@ namespace AssetBankPlugin.Ant
 
         public static AntAsset Get(Guid refId, bool recurse = false)
         {
+            // Immediately discard Empty GUIDs to prevent unnecessary cache checks
+            if (refId == Guid.Empty)
+                return null;
+
             if (Refs.TryGetValue(refId, out var guid))
             {
                 return guid;
@@ -36,8 +40,6 @@ namespace AssetBankPlugin.Ant
             {
                 if (recurse)
                 {
-                    // If we still land here after loading the cached bundle, then we couldn't find the requested AntRef
-                    // and something has gone terribly wrong.
                     return null;
                 }
                 else
@@ -53,9 +55,12 @@ namespace AssetBankPlugin.Ant
                     }
                     else
                     {
-                        FrostyExceptionBox.Show(new KeyNotFoundException($"Could not find AntRef {refId}, rebuilding the AntRef cache might fix this."), "Animation Export Error"); 
+                        // Removed the FrostyExceptionBox / LogError spam here.
+                        // If a garbage GUID (like 0000000d-...) hits this point, we just return null.
+                        // If it was a critical missing asset, AnimationAsset.cs will log it specifically anyway.
                         return null;
                     }
+
                     var bundle = App.AssetManager.GetBundleEntry(bundleId);
                     AntStateAssetDefinition.LoadAntStateFromBundle(bundle);
 

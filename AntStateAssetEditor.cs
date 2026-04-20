@@ -19,7 +19,10 @@ using System.Reflection;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Data;
 using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
 
 namespace AssetBankPlugin
 {
@@ -48,7 +51,7 @@ namespace AssetBankPlugin
                 _isSelectedForExport = value;
                 OnPropertyChanged(nameof(IsSelectedForExport));
 
-                // Direct call to parent edito
+                // Direct call to parent editor
                 ParentEditor?.NotifyExportStatus();
             }
         }
@@ -76,36 +79,44 @@ namespace AssetBankPlugin
 
             if (string.IsNullOrEmpty(opt.ExportSkeletonAsset))
             {
-                FrostyMessageBox.Show("Please set an Export Skeleton in 'Tools -> Options -> Animation Options' first.", "Missing Skeleton");
+                FrostyMessageBox.Show("Please set an Export Skeleton in Options first.", "Missing Skeleton");
                 return;
             }
 
             FrostySaveFileDialog sfd = new FrostySaveFileDialog("Save Animation", "*.seanim (SEAnim)|*.seanim", "SEAnim", Name);
             if (sfd.ShowDialog())
             {
+                string exportDirectory = Path.GetDirectoryName(sfd.FileName);
+                string assetName = Name;
+
                 FrostyTaskWindow.Show("Exporting Animation", "", (task) =>
                 {
-                    try
+                    // We run the EBX Loading and Exporting on the UI thread because 
+                    // Frosty's EBX descriptors and Logger are NOT thread-safe.
+                    Application.Current.Dispatcher.Invoke(() =>
                     {
-                        EbxAssetEntry skelEntry = App.AssetManager.GetEbxEntry(opt.ExportSkeletonAsset);
-                        if (skelEntry == null) throw new Exception("Export Skeleton asset not found in AssetManager.");
+                        try
+                        {
+                            EbxAssetEntry skelEntry = App.AssetManager.GetEbxEntry(opt.ExportSkeletonAsset);
+                            var skelEbx = App.AssetManager.GetEbx(skelEntry);
+                            dynamic skel = skelEbx.RootObject;
+                            var skeleton = SkeletonAssetExport.ConvertToInternal(skel);
 
-                        var skelEbx = App.AssetManager.GetEbx(skelEntry);
-                        var skeleton = SkeletonAssetExport.ConvertToInternal(skelEbx.RootObject);
+                            anim.Name = assetName;
+                            anim.Channels = anim.GetChannels(anim.ChannelToDofAsset);
+                            var intern = anim.ConvertToInternal();
 
-                        anim.Name = Name;
-                        anim.Channels = anim.GetChannels(anim.ChannelToDofAsset);
-                        var intern = anim.ConvertToInternal();
-
-                        string exportDirectory = Path.GetDirectoryName(sfd.FileName);
-                        new AnimationExporterSEANIM().Export(intern, skeleton, exportDirectory);
-
-                        App.Logger.Log($"[AntStateEditor] Successfully exported {Name} to {exportDirectory}");
-                    }
-                    catch (Exception ex)
-                    {
-                        App.Logger.LogError($"[AntStateEditor] Failed to export {Name}: {ex.Message}");
-                    }
+                            if (intern != null)
+                            {
+                                new AnimationExporterSEANIM().Export(intern, skeleton, exportDirectory);
+                                App.Logger.Log($"[AntStateEditor] Successfully exported {assetName}");
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            App.Logger.LogError($"[AntStateEditor] Failed to export {assetName}: {ex.Message}");
+                        }
+                    });
                 });
             }
         }
@@ -149,6 +160,15 @@ namespace AssetBankPlugin
         public string ValueStr { get; set; }
         public string TypeStr { get; set; }
         public object ValueObj { get; set; }
+
+        // Command to copy the property's value to clipboard
+        public ICommand CopyValueCommand => new RelayCommand((o) =>
+        {
+            if (!string.IsNullOrEmpty(ValueStr))
+            {
+                try { Clipboard.SetText(ValueStr); } catch { }
+            }
+        });
 
         public AntPropertyViewModel(string name, object val)
         {
@@ -251,6 +271,7 @@ namespace AssetBankPlugin
     [TemplatePart(Name = "PART_LoadingText", Type = typeof(TextBlock))]
     [TemplatePart(Name = "PART_BulkToggle", Type = typeof(System.Windows.Controls.Primitives.ToggleButton))]
     [TemplatePart(Name = "PART_ExportBulkButton", Type = typeof(Button))]
+    [TemplatePart(Name = "PART_AddRefButton", Type = typeof(Button))]
     public class AntStateAssetEditor : FrostyAssetEditor, INotifyPropertyChanged
     {
         private TextBox m_searchBox;
@@ -296,6 +317,7 @@ namespace AssetBankPlugin
             m_loadingText = GetTemplateChild("PART_LoadingText") as TextBlock;
             m_bulkToggle = GetTemplateChild("PART_BulkToggle") as System.Windows.Controls.Primitives.ToggleButton;
             var exportBulkBtn = GetTemplateChild("PART_ExportBulkButton") as Button;
+            var addRefBtn = GetTemplateChild("PART_AddRefButton") as Button;
 
             if (m_bulkToggle != null)
             {
@@ -306,6 +328,11 @@ namespace AssetBankPlugin
             if (exportBulkBtn != null)
             {
                 exportBulkBtn.Click += (s, e) => ExportSelected();
+            }
+
+            if (addRefBtn != null)
+            {
+                addRefBtn.Click += (s, e) => OpenReferenceSelector();
             }
 
             if (m_assetTreeView != null)
@@ -452,7 +479,6 @@ namespace AssetBankPlugin
         private void ExportSelected()
         {
             List<AntAssetViewModel> assetsToExport = new List<AntAssetViewModel>();
-
             if (_isBulkMode)
             {
                 assetsToExport = _masterGroups.SelectMany(g => g.Assets)
@@ -468,49 +494,60 @@ namespace AssetBankPlugin
 
             var opt = new AnimationOptions();
             opt.Load();
-
             if (string.IsNullOrEmpty(opt.ExportSkeletonAsset))
             {
                 FrostyMessageBox.Show("Please set an Export Skeleton in Options first.", "Missing Skeleton");
                 return;
             }
 
-            string exportDirectory = "";
-            if (assetsToExport.Count == 1)
-            {
-                FrostySaveFileDialog sfd = new FrostySaveFileDialog("Save Animation", "*.seanim (SEAnim)|*.seanim", "SEAnim", assetsToExport[0].Name);
-                if (!sfd.ShowDialog()) return;
-                exportDirectory = Path.GetDirectoryName(sfd.FileName);
-            }
-            else
-            {
-                FrostySaveFileDialog sfd = new FrostySaveFileDialog("Select Export Directory", "*.seanim (SEAnim)|*.seanim", "SEAnim", "FolderSelection");
-                if (!sfd.ShowDialog()) return;
-                exportDirectory = Path.GetDirectoryName(sfd.FileName);
-            }
+            FrostySaveFileDialog sfd = new FrostySaveFileDialog("Select Export Directory", "*.seanim (SEAnim)|*.seanim", "SEAnim", "FolderSelection");
+            if (!sfd.ShowDialog()) return;
+            string exportDirectory = Path.GetDirectoryName(sfd.FileName);
 
             FrostyTaskWindow.Show($"Exporting {assetsToExport.Count} Animations", "", (task) =>
             {
-                try
+                // 1. Get Skeleton once. 
+                // We must do this on UI thread because GetEbx can trigger WPF property changes.
+                InternalSkeleton skeleton = null;
+                Application.Current.Dispatcher.Invoke(() =>
                 {
-                    EbxAssetEntry skelEntry = App.AssetManager.GetEbxEntry(opt.ExportSkeletonAsset);
+                    var skelEntry = App.AssetManager.GetEbxEntry(opt.ExportSkeletonAsset);
                     var skelEbx = App.AssetManager.GetEbx(skelEntry);
-                    var skeleton = SkeletonAssetExport.ConvertToInternal(skelEbx.RootObject);
+                    skeleton = SkeletonAssetExport.ConvertToInternal(skelEbx.RootObject);
+                });
 
-                    int progress = 0;
-                    foreach (var asset in assetsToExport)
+                int progress = 0;
+                foreach (var asset in assetsToExport)
+                {
+                    string assetName = asset.Name;
+                    var anim = asset.AssetInstance as AnimationAsset;
+
+                    task.Update($"Exporting {assetName}...", ((double)progress / assetsToExport.Count) * 100.0);
+
+                    // 2. Process and Export each animation on the UI thread.
+                    // task.Update is thread-safe, but the rest of this isn't.
+                    Application.Current.Dispatcher.Invoke(() =>
                     {
-                        task.Update($"Exporting {asset.Name}...", ((double)progress / assetsToExport.Count) * 100.0);
-                        var anim = asset.AssetInstance as AnimationAsset;
-                        anim.Name = asset.Name;
-                        anim.Channels = anim.GetChannels(anim.ChannelToDofAsset);
-                        var intern = anim.ConvertToInternal();
-                        new AnimationExporterSEANIM().Export(intern, skeleton, exportDirectory);
-                        progress++;
-                    }
-                    App.Logger.Log($"[AntStateEditor] Exported {assetsToExport.Count} assets.");
+                        try
+                        {
+                            anim.Name = assetName;
+                            anim.Channels = anim.GetChannels(anim.ChannelToDofAsset);
+                            var intern = anim.ConvertToInternal();
+
+                            if (intern != null)
+                            {
+                                new AnimationExporterSEANIM().Export(intern, skeleton, exportDirectory);
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            App.Logger.LogError($"[AntStateEditor] Failed {assetName}: {ex.Message}");
+                        }
+                    });
+
+                    progress++;
                 }
-                catch (Exception ex) { App.Logger.LogError($"[AntStateEditor] Export failed: {ex.Message}"); }
+                App.Logger.Log($"[AntStateEditor] Exported {assetsToExport.Count} assets.");
             });
         }
 
@@ -521,5 +558,263 @@ namespace AssetBankPlugin
                 new ToolbarItem("Refresh", "Reload data", null, new RelayCommand((state) => _ = LoadAsync()))
             };
         }
+
+        private void OpenReferenceSelector()
+        {
+            var selectionWindow = new BankSelectionWindow
+            {
+                Owner = Window.GetWindow(this)
+            };
+
+            if (selectionWindow.ShowDialog() == true)
+            {
+                var selectedBanks = selectionWindow.SelectedEntries.ToList();
+                if (selectedBanks.Count == 0) return;
+
+                FrostyTaskWindow.Show("Loading Reference Banks", "", (task) =>
+                {
+                    int progress = 0;
+                    foreach (var entry in selectedBanks)
+                    {
+                        task.Update($"Caching {entry.Name}...", ((double)progress / selectedBanks.Count) * 100.0);
+
+                        try
+                        {
+                            EbxAsset asset = App.AssetManager.GetEbx(entry);
+                            dynamic antStateAsset = asset.RootObject;
+                            Stream s = null;
+                            int bundleId = entry.Bundles.Count > 0 ? entry.Bundles[0] : 0;
+
+                            if (antStateAsset.StreamingGuid == Guid.Empty)
+                            {
+                                var res = App.AssetManager.GetResEntry(entry.Name);
+                                if (res != null) s = App.AssetManager.GetRes(res);
+                            }
+                            else
+                            {
+                                var chunk = App.AssetManager.GetChunkEntry(antStateAsset.StreamingGuid);
+                                if (chunk != null) { bundleId = chunk.Bundles[0]; s = App.AssetManager.GetChunk(chunk); }
+                            }
+
+                            if (s != null)
+                            {
+                                using (var reader = new NativeReader(s))
+                                {
+                                    // Constructing the Bank triggers deserialization and populates AntRefTable cache
+                                    _ = new Bank(reader, bundleId);
+                                }
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            App.Logger.LogError($"[AntStateEditor] Failed to load reference bank {entry.Name}: {ex.Message}");
+                        }
+                        progress++;
+                    }
+                });
+
+                App.Logger.Log($"[AntStateEditor] Successfully loaded {selectedBanks.Count} reference banks into cache.");
+            }
+        }
+    }
+
+    // REFERENCE BANK SELECTOR (Virtualization + Data Binding)
+
+    public class BankNode : INotifyPropertyChanged
+    {
+        public string Name { get; set; }
+        public bool IsFolder { get; set; }
+        public EbxAssetEntry Entry { get; set; }
+        public ObservableCollection<BankNode> Children { get; set; } = new ObservableCollection<BankNode>();
+
+        private bool _isExpanded;
+        public bool IsExpanded
+        {
+            get => _isExpanded;
+            set
+            {
+                _isExpanded = value;
+                OnPropertyChanged(nameof(IsExpanded));
+                // Update the icon when expanded/collapsed
+                if (IsFolder) OnPropertyChanged(nameof(Icon));
+            }
+        }
+
+        private bool _isSelected;
+        public bool IsSelected
+        {
+            get => _isSelected;
+            set
+            {
+                _isSelected = value;
+                OnPropertyChanged(nameof(IsSelected));
+                if (Entry != null)
+                    BankSelectionWindow.UpdateSelection(Entry, value);
+            }
+        }
+
+        public ImageSource Icon => IsFolder
+            ? (IsExpanded ? BankSelectionWindow.OpenFolderIcon : BankSelectionWindow.FolderIcon)
+            : null;
+
+        public event PropertyChangedEventHandler PropertyChanged;
+        protected void OnPropertyChanged(string propName) =>
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propName));
+    }
+
+    public class BankSelectionWindow : FrostyWindow
+    {
+        public static ImageSource FolderIcon = new BitmapImage(new Uri("pack://application:,,,/FrostyEditor;component/Images/CloseFolder.png"));
+        public static ImageSource OpenFolderIcon = new BitmapImage(new Uri("pack://application:,,,/FrostyEditor;component/Images/OpenFolder.png"));
+
+        private static HashSet<EbxAssetEntry> _selectedCache = new HashSet<EbxAssetEntry>();
+
+        private TreeView _treeView;
+        private FrostyWatermarkTextBox _searchBox;
+        private List<EbxAssetEntry> _allEntries;
+        private ObservableCollection<BankNode> _rootNodes = new ObservableCollection<BankNode>();
+
+        public IEnumerable<EbxAssetEntry> SelectedEntries => _selectedCache;
+
+        public static void UpdateSelection(EbxAssetEntry entry, bool isSelected)
+        {
+            if (isSelected) _selectedCache.Add(entry);
+            else _selectedCache.Remove(entry);
+        }
+
+        public BankSelectionWindow()
+        {
+            Title = "  Select Reference Banks (AntStateAsset)";
+            Width = 550;
+            Height = 650;
+            WindowStartupLocation = WindowStartupLocation.CenterOwner;
+
+            // Define converters locally in C# to prevent "Resource Not Found" errors
+            var boolToVis = new BooleanToVisibilityConverter();
+            var inverseBoolToVis = new InverseBoolToVisConverter();
+
+            var grid = new Grid();
+            grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(35) });
+            grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(45) });
+
+            _searchBox = new FrostyWatermarkTextBox
+            {
+                Margin = new Thickness(5),
+                VerticalContentAlignment = VerticalAlignment.Center,
+                WatermarkText = "search ant state assets by name"
+            };
+            _searchBox.TextChanged += (s, e) => BuildTree();
+            Grid.SetRow(_searchBox, 0);
+            grid.Children.Add(_searchBox);
+
+            _treeView = new TreeView
+            {
+                Margin = new Thickness(5),
+                Background = new SolidColorBrush(Color.FromRgb(40, 40, 40)),
+                BorderThickness = new Thickness(0),
+                ItemsSource = _rootNodes
+            };
+            VirtualizingStackPanel.SetIsVirtualizing(_treeView, true);
+            VirtualizingStackPanel.SetVirtualizationMode(_treeView, VirtualizationMode.Recycling);
+
+            var template = new HierarchicalDataTemplate(typeof(BankNode)) { ItemsSource = new Binding("Children") };
+            var factory = new FrameworkElementFactory(typeof(StackPanel));
+            factory.SetValue(StackPanel.OrientationProperty, Orientation.Horizontal);
+            factory.SetValue(StackPanel.MarginProperty, new Thickness(0, 2, 0, 2));
+
+            // Folder icon
+            var imgFactory = new FrameworkElementFactory(typeof(Image));
+            imgFactory.SetBinding(Image.SourceProperty, new Binding("Icon"));
+            imgFactory.SetValue(Image.WidthProperty, 16.0);
+            imgFactory.SetValue(Image.HeightProperty, 16.0);
+            imgFactory.SetBinding(Image.VisibilityProperty, new Binding("IsFolder") { Converter = boolToVis });
+
+            // CheckBox for assets
+            var cbFactory = new FrameworkElementFactory(typeof(CheckBox));
+            cbFactory.SetBinding(CheckBox.IsCheckedProperty, new Binding("IsSelected") { Mode = BindingMode.TwoWay });
+            cbFactory.SetValue(CheckBox.VerticalAlignmentProperty, VerticalAlignment.Center);
+            cbFactory.SetBinding(CheckBox.VisibilityProperty, new Binding("IsFolder") { Converter = inverseBoolToVis });
+
+            // Text block
+            var txtFactory = new FrameworkElementFactory(typeof(TextBlock));
+            txtFactory.SetBinding(TextBlock.TextProperty, new Binding("Name"));
+            txtFactory.SetValue(TextBlock.FontSizeProperty, 14.0);
+            txtFactory.SetValue(TextBlock.ForegroundProperty, Brushes.White);
+            txtFactory.SetValue(TextBlock.MarginProperty, new Thickness(6, 0, 0, 0));
+            txtFactory.SetValue(TextBlock.VerticalAlignmentProperty, VerticalAlignment.Center);
+
+            factory.AppendChild(imgFactory);
+            factory.AppendChild(cbFactory);
+            factory.AppendChild(txtFactory);
+            template.VisualTree = factory;
+            _treeView.ItemTemplate = template;
+
+            var style = new Style(typeof(TreeViewItem), (Style)Application.Current.FindResource(typeof(TreeViewItem)));
+            style.Setters.Add(new Setter(TreeViewItem.IsExpandedProperty, new Binding("IsExpanded") { Mode = BindingMode.TwoWay }));
+            _treeView.ItemContainerStyle = style;
+
+            Grid.SetRow(_treeView, 1);
+            grid.Children.Add(_treeView);
+
+            var btnPanel = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+            var loadBtn = new Button { Content = "Load Selected", Width = 120, Height = 26, Margin = new Thickness(0, 0, 15, 0) };
+            loadBtn.Click += (s, e) => { DialogResult = true; Close(); };
+            var cancelBtn = new Button { Content = "Cancel", Width = 100, Height = 26 };
+            cancelBtn.Click += (s, e) => { DialogResult = false; Close(); };
+
+            btnPanel.Children.Add(loadBtn);
+            btnPanel.Children.Add(cancelBtn);
+            Grid.SetRow(btnPanel, 2);
+            grid.Children.Add(btnPanel);
+
+            Content = grid;
+            _allEntries = App.AssetManager.EnumerateEbx("AntStateAsset").OrderBy(x => x.Path).ThenBy(x => x.Filename).ToList();
+            BuildTree();
+        }
+
+        private void BuildTree()
+        {
+            _rootNodes.Clear();
+            string query = _searchBox.Text?.ToLower() ?? "";
+            bool isSearching = !string.IsNullOrWhiteSpace(query);
+            var folders = new Dictionary<string, BankNode>();
+
+            foreach (var entry in _allEntries)
+            {
+                if (isSearching && !entry.Name.ToLower().Contains(query) && !entry.Path.ToLower().Contains(query))
+                    continue;
+
+                string[] parts = entry.Path.Split(new char[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
+                BankNode currentParent = null;
+                string currentPath = "";
+
+                for (int i = 0; i < parts.Length; i++)
+                {
+                    currentPath += parts[i] + "/";
+                    if (!folders.TryGetValue(currentPath, out BankNode folderNode))
+                    {
+                        folderNode = new BankNode { Name = parts[i], IsFolder = true, IsExpanded = isSearching };
+                        if (currentParent == null) _rootNodes.Add(folderNode);
+                        else currentParent.Children.Add(folderNode);
+                        folders[currentPath] = folderNode;
+                    }
+                    currentParent = folderNode;
+                }
+
+                var assetNode = new BankNode { Name = entry.Filename, Entry = entry, IsFolder = false, IsSelected = _selectedCache.Contains(entry) };
+                if (currentParent == null) _rootNodes.Add(assetNode);
+                else currentParent.Children.Add(assetNode);
+            }
+        }
+    }
+
+    public class InverseBoolToVisConverter : IValueConverter
+    {
+        public object Convert(object value, Type targetType, object parameter, System.Globalization.CultureInfo culture)
+        {
+            return (value is bool b && b) ? Visibility.Collapsed : Visibility.Visible;
+        }
+        public object ConvertBack(object value, Type targetType, object parameter, System.Globalization.CultureInfo culture) => throw new NotImplementedException();
     }
 }

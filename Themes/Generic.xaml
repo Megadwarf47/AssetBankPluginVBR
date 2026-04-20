@@ -28,9 +28,10 @@
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="Auto"/>
                                         <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
 
-                                    <Image Source="/FrostyEditor;component/Images/Search.png" Width="14" Margin="4,0" Opacity="0.5"/>
+                                    <Image Source="/FrostyEditor;component/Images/Filter.png" Width="14" Margin="4,0" Opacity="0.5"/>
 
                                     <ctrl:FrostyWatermarkTextBox x:Name="PART_SearchBox" Grid.Column="1" Margin="2" 
                                         VerticalContentAlignment="Center"
@@ -39,8 +40,21 @@
                                         Foreground="{StaticResource FontColor}"
                                         BorderThickness="0"/>
 
-                                    <!-- Multi Select ToggleButton with native checkbox -->
-                                    <ToggleButton x:Name="PART_BulkToggle" Grid.Column="2" 
+                                    <!-- Add Reference Button -->
+                                    <Button x:Name="PART_AddRefButton" Grid.Column="2" 
+                                            Margin="4,2" Padding="8,2"
+                                            Height="24"
+                                            Background="{StaticResource ControlBackground}"
+                                            BorderThickness="1" BorderBrush="#505050"
+                                            ToolTip="Manually load external reference banks into cache">
+                                        <StackPanel Orientation="Horizontal">
+                                            <Image Source="/FrostyEditor;component/Images/Add.png" Width="14" Height="14" Margin="0,0,4,0"/>
+                                            <TextBlock Text="Add References" Foreground="White" VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                    </Button>
+
+                                    <!-- Multi Select ToggleButton -->
+                                    <ToggleButton x:Name="PART_BulkToggle" Grid.Column="3" 
                                                   Margin="4,2" Padding="8,0"
                                                   Height="24"
                                                   Foreground="White" 
@@ -56,8 +70,8 @@
                                         </StackPanel>
                                     </ToggleButton>
 
-                                    <!-- Export button: icon only -->
-                                    <Button x:Name="PART_ExportBulkButton" Grid.Column="3" 
+                                    <!-- Export button -->
+                                    <Button x:Name="PART_ExportBulkButton" Grid.Column="4" 
                                             Margin="4,2,8,2" Padding="4,2"
                                             Height="24"
                                             Background="{StaticResource ControlBackground}"
@@ -80,6 +94,7 @@
                                     <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="#404040"/>
                                     <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="White"/>
 
+                                    <!-- Group Template -->
                                     <HierarchicalDataTemplate DataType="{x:Type local:AntTypeGroup}" ItemsSource="{Binding Assets}">
                                         <Border Padding="0,2,0,0" Margin="0,2">
                                             <DockPanel>
@@ -89,8 +104,25 @@
                                         </Border>
                                     </HierarchicalDataTemplate>
 
+                                    <!-- Asset Template (Copy GUID + Export) -->
                                     <HierarchicalDataTemplate DataType="{x:Type local:AntAssetViewModel}" ItemsSource="{Binding Properties}">
                                         <Grid Margin="0,2" Background="Transparent">
+                                            <Grid.ContextMenu>
+                                                <ContextMenu>
+                                                    <MenuItem Header="Copy GUID" Command="{Binding CopyGuidCommand}">
+                                                        <MenuItem.Icon>
+                                                            <Image Source="/FrostyCore;component/Images/Copy.png" Width="14" Height="14"/>
+                                                        </MenuItem.Icon>
+                                                    </MenuItem>
+                                                    <MenuItem Header="Export Animation" 
+                                                              Command="{Binding ExportCommand}" 
+                                                              Visibility="{Binding ExportVisibility}">
+                                                        <MenuItem.Icon>
+                                                            <Image Source="/FrostyEditor;component/Images/Export.png" Width="14" Height="14"/>
+                                                        </MenuItem.Icon>
+                                                    </MenuItem>
+                                                </ContextMenu>
+                                            </Grid.ContextMenu>
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="Auto"/>
                                                 <ColumnDefinition Width="350"/>
@@ -104,9 +136,18 @@
                                         </Grid>
                                     </HierarchicalDataTemplate>
 
-                                    <!-- Fixed ToolTip: follows mouse cursor -->
+                                    <!-- Property Template (Copy Value) -->
                                     <HierarchicalDataTemplate DataType="{x:Type local:AntPropertyViewModel}" ItemsSource="{Binding Children}">
-                                        <Grid Margin="0,1">
+                                        <Grid Margin="0,1" Background="Transparent">
+                                            <Grid.ContextMenu>
+                                                <ContextMenu>
+                                                    <MenuItem Header="Copy Value" Command="{Binding CopyValueCommand}">
+                                                        <MenuItem.Icon>
+                                                            <Image Source="/FrostyCore;component/Images/Copy.png" Width="14" Height="14"/>
+                                                        </MenuItem.Icon>
+                                                    </MenuItem>
+                                                </ContextMenu>
+                                            </Grid.ContextMenu>
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="200"/>
                                                 <ColumnDefinition Width="*"/>
@@ -124,24 +165,7 @@
                                 <TreeView.ItemContainerStyle>
                                     <Style TargetType="{x:Type TreeViewItem}" BasedOn="{StaticResource baseTreeViewItemStyle}">
                                         <Setter Property="IsExpanded" Value="False"/>
-                                        <Setter Property="ContextMenu">
-                                            <Setter.Value>
-                                                <ContextMenu>
-                                                    <MenuItem Header="Copy GUID" Command="{Binding CopyGuidCommand}">
-                                                        <MenuItem.Icon>
-                                                            <Image Source="/FrostyCore;component/Images/Copy.png" Width="14" Height="14"/>
-                                                        </MenuItem.Icon>
-                                                    </MenuItem>
-                                                    <MenuItem Header="Export Animation" 
-                                                              Command="{Binding ExportCommand}" 
-                                                              Visibility="{Binding ExportVisibility}">
-                                                        <MenuItem.Icon>
-                                                            <Image Source="/FrostyEditor;component/Images/Export.png" Width="14" Height="14"/>
-                                                        </MenuItem.Icon>
-                                                    </MenuItem>
-                                                </ContextMenu>
-                                            </Setter.Value>
-                                        </Setter>
+                                        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
                                     </Style>
                                 </TreeView.ItemContainerStyle>
                             </TreeView>
