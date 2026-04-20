@@ -45,27 +45,6 @@ namespace AssetBankPlugin.Ant
             }
             ChannelToDofAsset = (Guid)data["ChannelToDofAsset"];
         }
-        public LayoutHierarchyAsset RecursiveHierarchySearch(LayoutHierarchyAsset initialHierarchy, LayoutHierarchyAsset TargetHierarchy)
-        {
-            if (initialHierarchy.ID == TargetHierarchy.ID)
-            {
-                return initialHierarchy;
-            }
-            for (int i = 0; i < initialHierarchy.Children.Length; i++)
-            {
-                AntAsset asset = AntRefTable.Get(initialHierarchy.Children[i]);
-                if (asset is LayoutHierarchyAsset)
-                {
-                    LayoutHierarchyAsset returnAsset = RecursiveHierarchySearch((LayoutHierarchyAsset)asset, TargetHierarchy);
-                    if (returnAsset == TargetHierarchy)
-                    {
-                        return returnAsset;
-                    }
-                }
-
-            }
-                return initialHierarchy;
-        }
 
         public LayoutHierarchyAsset RecursiveHierarchySearch(LayoutHierarchyAsset initialHierarchy, LayoutHierarchyAsset TargetHierarchy)
         {
@@ -228,7 +207,6 @@ namespace AssetBankPlugin.Ant
             int dataLength = data != null ? data.Length : 0;
             var channelNamesList = channelNames.ToArray();
             int channelNamesLength = channelNamesList.Length;
-            
 
             // 6. Use primitive Arrays instead of List<T> wherever the size is fixed
             string[] channelsArray = null;
